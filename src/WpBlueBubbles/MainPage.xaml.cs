@@ -832,7 +832,7 @@ namespace WpBlueBubbles
         {
             if (_sharedFile == null && string.IsNullOrWhiteSpace(_sharedText)) return;
             if (!string.IsNullOrWhiteSpace(_sharedText)) MessageBox.Text = _sharedText;
-            SharedAttachmentText.Text = BuildSharedPreview();
+            SharedAttachmentBanner.Text = BuildSharedPreview();
             SharedAttachmentBanner.Visibility = Visibility.Visible;
         }
 
@@ -854,7 +854,7 @@ namespace WpBlueBubbles
             _sharedFile = null;
             _sharedText = null;
             SharedAttachmentBanner.Visibility = Visibility.Collapsed;
-            SharedAttachmentText.Text = string.Empty;
+            SharedAttachmentBanner.Text = string.Empty;
             SharedComposePreview.Visibility = Visibility.Collapsed;
         }
 

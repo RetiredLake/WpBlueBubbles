@@ -99,10 +99,10 @@
               <Grid x:Name="Composer" Grid.Row="1" Visibility="Collapsed" Background="#09141B" Padding="4,6" BorderBrush="#33434C" BorderThickness="0,1,0,0">
                 <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="52"/></Grid.RowDefinitions>
                 <Grid.ColumnDefinitions><ColumnDefinition Width="48"/><ColumnDefinition Width="*"/><ColumnDefinition Width="48"/></Grid.ColumnDefinitions>
-                <StackPanel x:Name="SharedAttachmentBanner" Grid.ColumnSpan="3" Visibility="Collapsed" Orientation="Horizontal" Margin="8,0,4,4">
-                  <TextBlock x:Name="SharedAttachmentText" Foreground="{StaticResource MutedTextBrush}" TextWrapping="Wrap" VerticalAlignment="Center"/>
-                  <Button x:Name="ClearAttachmentButton" Style="{StaticResource HeaderIconButtonStyle}" Content="&#xE711;" Width="32" Height="32" FontSize="14" Click="ClearAttachment_Click" AutomationProperties.Name="Remove queued attachment"/>
-                </StackPanel>
+                <Grid Grid.ColumnSpan="3" Visibility="{Binding Visibility, ElementName=SharedAttachmentBanner}">
+                  <TextBlock x:Name="SharedAttachmentBanner" Foreground="{StaticResource MutedTextBrush}" TextWrapping="Wrap" Margin="8,0,40,4"/>
+                  <Button x:Name="ClearAttachmentButton" Style="{StaticResource HeaderIconButtonStyle}" Content="&#xE711;" Width="32" Height="32" FontSize="14" Click="ClearAttachment_Click" HorizontalAlignment="Right" VerticalAlignment="Top" AutomationProperties.Name="Remove queued attachment"/>
+                </Grid>
                 <Button x:Name="AttachButton" Grid.Row="1" Style="{StaticResource HeaderIconButtonStyle}" Width="48" Height="48" Content="&#xE723;" Click="Attach_Click" AutomationProperties.Name="Attach a file"/>
                 <TextBox x:Name="MessageBox" Grid.Row="1" Grid.Column="1" PlaceholderText="Type a message" AcceptsReturn="False" TextWrapping="NoWrap" BorderThickness="0" Background="Transparent" Padding="4,0" FontSize="18" VerticalContentAlignment="Center" KeyDown="MessageBox_KeyDown"/>
                 <Button x:Name="SendButton" Grid.Row="1" Grid.Column="2" Style="{StaticResource HeaderIconButtonStyle}" Width="48" Height="48" Content="&#xE724;" Click="Send_Click" AutomationProperties.Name="Send message"/>
@@ -158,7 +158,7 @@
           <StackPanel Margin="0,26,0,0">
           <TextBlock Text="Credits" FontSize="16" Foreground="{StaticResource MutedTextBrush}"/>
             <HyperlinkButton Content="developed by retiredlake.com" NavigateUri="https://retiredlake.com" HorizontalAlignment="Left" Padding="0"/>
-            <TextBlock Text="v0.1.6" Foreground="{StaticResource MutedTextBrush}" FontSize="14" Margin="0,2,0,0"/>
+            <TextBlock Text="v0.1.6a" Foreground="{StaticResource MutedTextBrush}" FontSize="14" Margin="0,2,0,0"/>
           </StackPanel>
           <TextBlock x:Name="ConnectError" Foreground="#FFFF8C82" TextWrapping="Wrap"/>
         </StackPanel>
