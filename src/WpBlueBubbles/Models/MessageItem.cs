@@ -18,6 +18,7 @@ namespace WpBlueBubbles.Models
         public string AttachmentMimeType { get; set; }
         public string AttachmentUri { get; set; }
         public bool IsImageAttachment { get; set; }
+        public bool HasText { get { return !string.IsNullOrWhiteSpace(Text); } }
         public bool HasNonImageAttachment { get { return HasAttachments && !IsImageAttachment; } }
         public event PropertyChangedEventHandler PropertyChanged;
         public HorizontalAlignment BubbleAlignment { get { return IsFromMe ? HorizontalAlignment.Right : HorizontalAlignment.Left; } }
@@ -29,7 +30,6 @@ namespace WpBlueBubbles.Models
             var text = JsonValueReader.String(json, "text");
             JsonArray attachments;
             var hasAttachments = JsonValueReader.TryArray(json, "attachments", out attachments) && attachments.Count > 0;
-            if (string.IsNullOrWhiteSpace(text)) text = hasAttachments ? "Photo or attachment" : "";
             var attachmentGuid = string.Empty;
             var mimeType = string.Empty;
             var uti = string.Empty;
@@ -42,6 +42,8 @@ namespace WpBlueBubbles.Models
                 uti = JsonValueReader.String(attachment, "uti");
                 attachmentName = JsonValueReader.String(attachment, "transferName");
             }
+            var isImage = mimeType.StartsWith("image/", System.StringComparison.OrdinalIgnoreCase) || uti.IndexOf("image", System.StringComparison.OrdinalIgnoreCase) >= 0 || uti.IndexOf("jpeg", System.StringComparison.OrdinalIgnoreCase) >= 0 || uti.IndexOf("png", System.StringComparison.OrdinalIgnoreCase) >= 0 || uti.IndexOf("heic", System.StringComparison.OrdinalIgnoreCase) >= 0;
+            if (string.IsNullOrWhiteSpace(text) && hasAttachments && !isImage) text = "Attachment";
             return new MessageItem
             {
                 Guid = JsonValueReader.String(json, "guid"),
@@ -51,7 +53,7 @@ namespace WpBlueBubbles.Models
                 AttachmentLabel = hasAttachments ? (string.IsNullOrWhiteSpace(attachmentName) ? "Attachment available" : attachmentName) : string.Empty,
                 AttachmentGuid = attachmentGuid,
                 AttachmentMimeType = mimeType,
-                IsImageAttachment = mimeType.StartsWith("image/", System.StringComparison.OrdinalIgnoreCase) || uti.IndexOf("image", System.StringComparison.OrdinalIgnoreCase) >= 0 || uti.IndexOf("jpeg", System.StringComparison.OrdinalIgnoreCase) >= 0 || uti.IndexOf("png", System.StringComparison.OrdinalIgnoreCase) >= 0 || uti.IndexOf("heic", System.StringComparison.OrdinalIgnoreCase) >= 0,
+                IsImageAttachment = isImage,
                 TimeLabel = DateLabels.FromMilliseconds(timestamp).ToString("g"),
                 IsFromMe = JsonValueReader.Boolean(json, "isFromMe")
             };
@@ -72,6 +74,7 @@ namespace WpBlueBubbles.Models
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsImageAttachment)));
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(HasNonImageAttachment)));
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(AttachmentLabel)));
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(HasText)));
         }
     }
 }

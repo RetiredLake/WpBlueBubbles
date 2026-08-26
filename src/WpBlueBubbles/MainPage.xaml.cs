@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
 using System.Reflection;
+using System.Text;
 using System.Threading.Tasks;
 using Windows.System;
 using Windows.ApplicationModel.DataTransfer;
@@ -15,6 +16,8 @@ using Windows.Storage.Pickers;
 using Windows.UI.Core;
 using Windows.UI.Popups;
 using Windows.UI.ViewManagement;
+using Windows.UI.StartScreen;
+using Windows.System.Profile;
 using Windows.UI.Xaml;
 using Windows.UI.Xaml.Controls;
 using Windows.UI.Xaml.Input;
@@ -103,12 +106,22 @@ namespace WpBlueBubbles
 
         private void MainPage_SizeChanged(object sender, SizeChangedEventArgs e) { UpdateResponsiveLayout(); }
 
+        private bool UseSinglePaneLayout
+        {
+            get
+            {
+                return string.Equals(AnalyticsInfo.DeviceForm, "Phone", StringComparison.OrdinalIgnoreCase) || ActualWidth < 1000;
+            }
+        }
+
         private void UpdateResponsiveLayout()
         {
-            if (ActualWidth >= 1000)
+            if (!UseSinglePaneLayout)
             {
                 ChatColumn.Width = new GridLength(360);
                 DividerColumn.Width = new GridLength(1);
+                Grid.SetColumn(ConversationPane, 2);
+                Grid.SetColumnSpan(ConversationPane, 1);
                 ChatsPane.Visibility = Visibility.Visible;
                 ConversationPane.Visibility = Visibility.Visible;
                 MenuButton.Visibility = Visibility.Visible;
@@ -119,6 +132,8 @@ namespace WpBlueBubbles
             {
                 ChatColumn.Width = new GridLength(1, GridUnitType.Star);
                 DividerColumn.Width = new GridLength(0);
+                Grid.SetColumn(ConversationPane, 0);
+                Grid.SetColumnSpan(ConversationPane, 3);
                 ChatsPane.Visibility = Visibility.Visible;
                 ConversationPane.Visibility = Visibility.Collapsed;
                 MenuButton.Visibility = Visibility.Visible;
@@ -138,7 +153,7 @@ namespace WpBlueBubbles
                 await _client.TestConnectionAsync();
                 SettingsStore.Save(address, password);
                 SettingsStore.SaveSyncOptions(_messagesPerChat, _syncTimeframeDays);
-                SetSyncing(true, "Syncing chats...");
+                SetSyncing(true, "Requesting chat list from BlueBubbles...");
                 await LoadContactsAsync();
                 await RefreshChatsAsync();
                 _pollTimer.Start();
@@ -169,10 +184,13 @@ namespace WpBlueBubbles
             var selectedGuid = _selectedChat == null ? null : _selectedChat.Guid;
             _allChats.Clear();
             _allChats.AddRange(chats);
+            var activeCount = _allChats.Count(chat => !chat.IsArchived);
+            var archivedCount = _allChats.Count - activeCount;
             for (var index = 0; index < _allChats.Count; index++)
             {
                 _allChats[index].ApplyContactNames(_contactNames);
-                SetSyncing(true, "Loading chats: " + (index + 1) + " of " + _allChats.Count);
+                var current = _allChats[index];
+                SetSyncing(true, "Indexing " + (index + 1) + " of " + _allChats.Count + " chats (" + activeCount + " active, " + archivedCount + " archived): " + current.Title);
             }
             ApplyChatSearch();
             if (selectedGuid != null) _selectedChat = _allChats.FirstOrDefault(c => c.Guid == selectedGuid) ?? _selectedChat;
@@ -202,7 +220,7 @@ namespace WpBlueBubbles
         {
             if (_isRefreshing) return;
             _isRefreshing = true;
-            SetSyncing(true, "Syncing chats...");
+            SetSyncing(true, "Refreshing chat list from BlueBubbles...");
             try
             {
                 await RefreshChatsAsync();
@@ -221,13 +239,9 @@ namespace WpBlueBubbles
             EmptyConversation.Visibility = Visibility.Collapsed;
             MessagesList.Visibility = Visibility.Visible;
             Composer.Visibility = Visibility.Visible;
-            if (ActualWidth < 1000)
+            if (UseSinglePaneLayout)
             {
-                ChatsPane.Visibility = Visibility.Collapsed;
-                ConversationPane.Visibility = Visibility.Visible;
-                MenuButton.Visibility = Visibility.Collapsed;
-                BackButton.Visibility = Visibility.Visible;
-                SystemNavigationManager.GetForCurrentView().AppViewBackButtonVisibility = AppViewBackButtonVisibility.Visible;
+                ReturnToConversation();
             }
             ShowStatus("Loading messages...", false);
             try { SetSyncing(true, "Syncing messages..."); await RefreshMessagesAsync(true); ShowStatus(string.Empty, false); }
@@ -410,7 +424,7 @@ namespace WpBlueBubbles
             EmptyConversation.Visibility = Visibility.Collapsed;
             MessagesList.Visibility = Visibility.Visible;
             Composer.Visibility = Visibility.Visible;
-            if (ActualWidth < 1000) ReturnToConversation();
+            if (UseSinglePaneLayout) ReturnToConversation();
             try { await RefreshMessagesAsync(true); }
             catch (Exception ex) { ShowStatus(ex.Message, true); }
         }
@@ -474,7 +488,7 @@ namespace WpBlueBubbles
                 MessagesList.Visibility = Visibility.Visible;
                 Composer.Visibility = Visibility.Visible;
                 UpdateHeaderActions(true);
-                if (ActualWidth < 1000) ReturnToConversation();
+                if (UseSinglePaneLayout) ReturnToConversation();
                 await RefreshMessagesAsync(true);
             }
             catch (Exception ex) { ShowStatus(ex.Message, true); }
@@ -607,6 +621,7 @@ namespace WpBlueBubbles
             SetupOnlyPanel.Visibility = connected ? Visibility.Collapsed : Visibility.Visible;
             ConnectedSettingsHeader.Visibility = connected ? Visibility.Visible : Visibility.Collapsed;
             ConnectedSettingsActions.Visibility = connected ? Visibility.Visible : Visibility.Collapsed;
+            SettingsBackButton.Visibility = connected ? Visibility.Visible : Visibility.Collapsed;
         }
 
         private async void SignOut_Click(object sender, RoutedEventArgs e)
@@ -673,15 +688,30 @@ namespace WpBlueBubbles
         private async void ChatActions_Click(object sender, RoutedEventArgs e)
         {
             if (_selectedChat == null) return;
+            var pin = new UICommand("Pin to Start");
             var delete = new UICommand("Delete chat");
             var menu = new PopupMenu();
+            menu.Commands.Add(pin);
             menu.Commands.Add(delete);
             var point = ChatActionsButton.TransformToVisual(null).TransformPoint(new Point());
             var selected = await menu.ShowForSelectionAsync(new Rect(point, ChatActionsButton.RenderSize));
-            if (selected == delete)
+            if (selected == pin)
+            {
+                await PinSelectedChatAsync();
+            }
+            else if (selected == delete)
             {
                 await DeleteSelectedChatAsync();
             }
+        }
+
+        private async Task PinSelectedChatAsync()
+        {
+            if (_selectedChat == null) return;
+            var tileId = "chat-" + Convert.ToBase64String(Encoding.UTF8.GetBytes(_selectedChat.Guid)).TrimEnd('=').Replace('+', '-').Replace('/', '_');
+            if (SecondaryTile.Exists(tileId)) { ShowStatus("This conversation is already pinned to Start.", false); return; }
+            var tile = new SecondaryTile(tileId, _selectedChat.Title, "chat=" + Uri.EscapeDataString(_selectedChat.Guid), new Uri("ms-appx:///Assets/Square150x150Logo.png"), TileSize.Square150x150);
+            await tile.RequestCreateAsync();
         }
 
         private async Task DeleteSelectedChatAsync()
@@ -724,18 +754,18 @@ namespace WpBlueBubbles
             else if (ComposeOverlay.Visibility == Visibility.Visible) { CloseCompose_Click(this, null); e.Handled = true; }
             else if (ContactsOverlay.Visibility == Visibility.Visible) { CloseContacts_Click(this, null); e.Handled = true; }
             else if (SettingsOverlay.Visibility == Visibility.Visible && _client != null) { SettingsOverlay.Visibility = Visibility.Collapsed; e.Handled = true; }
-            else if (ActualWidth < 1000 && ChatsPane.Visibility == Visibility.Collapsed) { ReturnToChats(); e.Handled = true; }
+            else if (UseSinglePaneLayout && ChatsPane.Visibility == Visibility.Collapsed) { ReturnToChats(); e.Handled = true; }
         }
 
         private void ReturnToChats()
         {
-            if (ActualWidth < 1000)
+            if (UseSinglePaneLayout)
             {
                 ChatsPane.Visibility = Visibility.Visible;
                 ConversationPane.Visibility = Visibility.Collapsed;
                 MenuButton.Visibility = Visibility.Visible;
                 BackButton.Visibility = Visibility.Collapsed;
-                PageTitle.Text = "Chats";
+                PageTitle.Text = _showArchived ? "Archived" : "Chats";
                 SystemNavigationManager.GetForCurrentView().AppViewBackButtonVisibility = AppViewBackButtonVisibility.Collapsed;
             }
             UpdateHeaderActions(false);
@@ -743,6 +773,10 @@ namespace WpBlueBubbles
 
         private void ReturnToConversation()
         {
+            ChatColumn.Width = new GridLength(1, GridUnitType.Star);
+            DividerColumn.Width = new GridLength(0);
+            Grid.SetColumn(ConversationPane, 0);
+            Grid.SetColumnSpan(ConversationPane, 3);
             ChatsPane.Visibility = Visibility.Collapsed;
             ConversationPane.Visibility = Visibility.Visible;
             MenuButton.Visibility = Visibility.Collapsed;

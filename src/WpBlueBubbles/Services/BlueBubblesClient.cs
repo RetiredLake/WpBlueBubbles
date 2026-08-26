@@ -38,7 +38,7 @@ namespace WpBlueBubbles.Services
             {
                 ["with"] = new JsonArray { JsonValue.CreateStringValue("participants"), JsonValue.CreateStringValue("lastmessage") },
                 ["offset"] = JsonValue.CreateNumberValue(0),
-                ["limit"] = JsonValue.CreateNumberValue(100),
+                ["limit"] = JsonValue.CreateNumberValue(1000),
                 ["sort"] = JsonValue.CreateStringValue("lastmessage")
             };
             var root = await PostRootAsync("chat/query", body);
@@ -124,6 +124,7 @@ namespace WpBlueBubbles.Services
                 // Newer BlueBubbles servers can truncate semicolon-delimited chat GUIDs in multipart fields.
                 // Keep the GUID in the query string where it survives intact.
                 var route = "message/attachment?chatGuid=" + Uri.EscapeDataString(chatGuid);
+                form.Add(new StringContent(chatGuid), "chatGuid");
                 form.Add(new StringContent(tempGuid), "tempGuid");
                 form.Add(new StringContent(file.Name), "name");
                 var response = await _http.PostAsync(BuildUrl(route), form);
