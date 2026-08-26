@@ -141,6 +141,9 @@ namespace WpBlueBubbles
             {
                 var type = args.GetType();
                 if (type.FullName != "Windows.ApplicationModel.Activation.ContactMessageActivatedEventArgs") return string.Empty;
+                var serviceId = type.GetProperty("ServiceId")?.GetValue(args) as string;
+                var serviceUserId = type.GetProperty("ServiceUserId")?.GetValue(args) as string;
+                if (string.Equals(serviceId, "telephone", System.StringComparison.OrdinalIgnoreCase) && !string.IsNullOrWhiteSpace(serviceUserId)) return serviceUserId;
                 var contact = type.GetProperty("Contact")?.GetValue(args);
                 var phones = contact?.GetType().GetProperty("Phones")?.GetValue(contact) as System.Collections.IEnumerable;
                 if (phones != null)
@@ -158,7 +161,6 @@ namespace WpBlueBubbles
                         var address = email?.GetType().GetProperty("Address")?.GetValue(email) as string;
                         if (!string.IsNullOrWhiteSpace(address)) return address;
                     }
-                var serviceUserId = type.GetProperty("ServiceUserId")?.GetValue(args) as string;
                 if (!string.IsNullOrWhiteSpace(serviceUserId)) return serviceUserId;
             }
             catch { }

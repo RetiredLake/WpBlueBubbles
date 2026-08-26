@@ -28,7 +28,7 @@ namespace WpBlueBubbles.Services
             {
                 Address = values.ContainsKey(AddressKey) ? values[AddressKey] as string : string.Empty,
                 Password = LoadPassword(),
-                MessagesPerChat = values.ContainsKey(MessagesPerChatKey) ? (int)values[MessagesPerChatKey] : 10,
+                MessagesPerChat = values.ContainsKey(MessagesPerChatKey) ? (int)values[MessagesPerChatKey] : 15,
                 SyncTimeframeDays = values.ContainsKey(SyncTimeframeDaysKey) ? (int)values[SyncTimeframeDaysKey] : 7
             };
         }
@@ -57,13 +57,13 @@ namespace WpBlueBubbles.Services
             values[SyncTimeframeDaysKey] = timeframeDays < 0 ? 0 : timeframeDays;
         }
 
-        public static void EnsureVersion016Defaults()
+        public static void EnsureVersion019Defaults()
         {
             var values = ApplicationData.Current.LocalSettings.Values;
-            if (values.ContainsKey(SyncDefaultsVersionKey) && (int)values[SyncDefaultsVersionKey] >= 16) return;
-            values[MessagesPerChatKey] = 10;
+            if (values.ContainsKey(SyncDefaultsVersionKey) && (int)values[SyncDefaultsVersionKey] >= 19) return;
+            values[MessagesPerChatKey] = 15;
             values[SyncTimeframeDaysKey] = 7;
-            values[SyncDefaultsVersionKey] = 16;
+            values[SyncDefaultsVersionKey] = 19;
         }
 
         public static void Clear()

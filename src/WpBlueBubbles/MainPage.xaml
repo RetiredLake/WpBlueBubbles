@@ -116,9 +116,14 @@
     </SplitView>
 
     <Grid x:Name="SettingsOverlay" Background="{StaticResource AppBackgroundBrush}" Visibility="Collapsed">
-      <ScrollViewer>
+      <Grid.RowDefinitions><RowDefinition Height="64"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+      <Grid x:Name="SettingsHeader" Background="#09141B" BorderBrush="#33434C" BorderThickness="0,0,0,1" Visibility="Collapsed">
+        <Grid.ColumnDefinitions><ColumnDefinition Width="64"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+        <Button x:Name="SettingsBackButton" Style="{StaticResource HeaderIconButtonStyle}" Content="&#xE72B;" Click="CloseSettings_Click" AutomationProperties.Name="Close settings"/>
+        <TextBlock Grid.Column="1" Text="Settings" FontSize="25" VerticalAlignment="Center"/>
+      </Grid>
+      <ScrollViewer Grid.Row="1">
         <StackPanel MaxWidth="560" Padding="28,36" HorizontalAlignment="Center">
-          <Button x:Name="SettingsBackButton" Style="{StaticResource HeaderIconButtonStyle}" Content="&#xE72B;" Click="CloseSettings_Click" HorizontalAlignment="Left" Visibility="Collapsed" AutomationProperties.Name="Close settings"/>
           <StackPanel x:Name="SetupOnlyPanel">
           <TextBlock Text="Connect to BlueBubbles" FontSize="28" TextWrapping="Wrap" Margin="0,14,0,4"/>
           <TextBlock Text="Use the server's setup QR code or enter its address and password." Foreground="{StaticResource MutedTextBrush}" TextWrapping="Wrap"/>
@@ -141,8 +146,7 @@
           </StackPanel>
           </StackPanel>
           <StackPanel x:Name="ConnectedSettingsHeader" Visibility="Collapsed">
-            <TextBlock Text="Settings" FontSize="30" Margin="0,14,0,4"/>
-            <TextBlock Text="BlueBubbles is connected. Changes below affect future syncs." Foreground="{StaticResource MutedTextBrush}" TextWrapping="Wrap"/>
+            <TextBlock Text="BlueBubbles is connected. Changes below affect future syncs." Foreground="{StaticResource MutedTextBrush}" TextWrapping="Wrap" Margin="0,0,0,4"/>
           </StackPanel>
           <StackPanel Margin="0,8,0,0">
             <TextBlock Text="Sync messages" FontSize="20"/>
@@ -152,13 +156,12 @@
             <TextBlock Text="Notifications and Live Tile are temporarily disabled." Foreground="{StaticResource MutedTextBrush}" TextWrapping="Wrap" Margin="0,14,0,0"/>
           </StackPanel>
           <StackPanel x:Name="ConnectedSettingsActions" Visibility="Collapsed" Margin="0,26,0,0">
-            <Button Content="Sign out" Click="SignOut_Click" HorizontalAlignment="Left"/>
-            <Button Content="Reset app" Click="Reset_Click" HorizontalAlignment="Left" Margin="0,8,0,0"/>
+            <Button Content="Sign out and reset app" Click="SignOut_Click" HorizontalAlignment="Left"/>
           </StackPanel>
           <StackPanel Margin="0,26,0,0">
           <TextBlock Text="Credits" FontSize="16" Foreground="{StaticResource MutedTextBrush}"/>
             <HyperlinkButton Content="developed by retiredlake.com" NavigateUri="https://retiredlake.com" HorizontalAlignment="Left" Padding="0"/>
-            <TextBlock Text="v0.1.8" Foreground="{StaticResource MutedTextBrush}" FontSize="14" Margin="0,2,0,0"/>
+            <TextBlock Text="v0.1.9" Foreground="{StaticResource MutedTextBrush}" FontSize="14" Margin="0,2,0,0"/>
           </StackPanel>
           <TextBlock x:Name="ConnectError" Foreground="#FFFF8C82" TextWrapping="Wrap"/>
         </StackPanel>

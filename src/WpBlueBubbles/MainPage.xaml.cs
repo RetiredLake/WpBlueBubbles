@@ -36,14 +36,14 @@ namespace WpBlueBubbles
         private readonly ObservableCollection<MessageItem> _messages = new ObservableCollection<MessageItem>();
         private readonly ObservableCollection<ContactChoice> _contacts = new ObservableCollection<ContactChoice>();
         private readonly List<ContactChoice> _allContacts = new List<ContactChoice>();
-        private readonly DispatcherTimer _pollTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(4) };
+        private readonly DispatcherTimer _pollTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(15) };
         private readonly DispatcherTimer _qrScanTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(450) };
         private BlueBubblesClient _client;
         private QrCameraScanner _qrScanner;
         private ChatItem _selectedChat;
         private bool _isRefreshing;
         private bool _isQrScanInProgress;
-        private int _messagesPerChat = 10;
+        private int _messagesPerChat = 15;
         private int _syncTimeframeDays = 7;
         private IReadOnlyDictionary<string, string> _contactNames = new Dictionary<string, string>();
         private ShareOperation _shareOperation;
@@ -54,7 +54,10 @@ namespace WpBlueBubbles
         private bool _updatingRecipient;
         private bool _statusIsError;
         private readonly InputPane _inputPane;
+        private bool _settingsLoaded;
+        private string _chatStateSignature;
         private static readonly bool UseLegacyInAppSyncStatus = false;
+        private static readonly bool UsePhoneSyncStatus = false;
 
         public MainPage()
         {
@@ -76,9 +79,8 @@ namespace WpBlueBubbles
         private async void MainPage_Loaded(object sender, RoutedEventArgs e)
         {
             ApplicationView.GetForCurrentView().SetDesiredBoundsMode(ApplicationViewBoundsMode.UseVisible);
-            await EnsurePhoneStatusBarAsync();
             UpdateResponsiveLayout();
-            SettingsStore.EnsureVersion016Defaults();
+            SettingsStore.EnsureVersion019Defaults();
             var settings = SettingsStore.Load();
             ServerAddressBox.Text = settings.Address ?? string.Empty;
             ServerPasswordBox.Password = string.Empty;
@@ -86,6 +88,7 @@ namespace WpBlueBubbles
             _syncTimeframeDays = settings.SyncTimeframeDays;
             MessagesPerChatSlider.Value = _messagesPerChat;
             SelectTimeframe(_syncTimeframeDays);
+            _settingsLoaded = true;
             UpdateSyncDescription();
             await NotificationService.DisableAsync();
             if (!settings.IsComplete)
@@ -159,6 +162,7 @@ namespace WpBlueBubbles
             {
                 if (_client != null) _client.Dispose();
                 _client = new BlueBubblesClient(address, password);
+                _chatStateSignature = null;
                 await _client.TestConnectionAsync();
                 SettingsStore.Save(address, password);
                 SettingsStore.SaveSyncOptions(_messagesPerChat, _syncTimeframeDays);
@@ -186,23 +190,32 @@ namespace WpBlueBubbles
             }
         }
 
-        private async Task RefreshChatsAsync()
+        private async Task<bool> RefreshChatsAsync()
         {
-            if (_client == null) return;
+            if (_client == null) return false;
             var chats = await _client.GetChatsAsync();
+            foreach (var chat in chats) chat.ApplyContactNames(_contactNames);
+            var signature = BuildChatStateSignature(chats);
+            if (signature == _chatStateSignature) return false;
             var selectedGuid = _selectedChat == null ? null : _selectedChat.Guid;
             _allChats.Clear();
             _allChats.AddRange(chats);
+            _chatStateSignature = signature;
             var activeCount = _allChats.Count(chat => !chat.IsArchived);
             var archivedCount = _allChats.Count - activeCount;
             for (var index = 0; index < _allChats.Count; index++)
             {
-                _allChats[index].ApplyContactNames(_contactNames);
                 var current = _allChats[index];
                 SetSyncing(true, "Indexing " + (index + 1) + " of " + _allChats.Count + " chats (" + activeCount + " active, " + archivedCount + " archived): " + current.Title);
             }
             ApplyChatSearch();
             if (selectedGuid != null) _selectedChat = _allChats.FirstOrDefault(c => c.Guid == selectedGuid) ?? _selectedChat;
+            return true;
+        }
+
+        private static string BuildChatStateSignature(IEnumerable<ChatItem> chats)
+        {
+            return string.Join("|", chats.OrderBy(chat => chat.Guid).Select(chat => chat.Guid + ":" + chat.LastMessageGuid + ":" + chat.LastMessageTimestamp + ":" + chat.IsArchived + ":" + chat.Title));
         }
 
         private async Task RefreshMessagesAsync(bool forceScroll)
@@ -232,8 +245,8 @@ namespace WpBlueBubbles
             SetSyncing(true, "Refreshing chat list from BlueBubbles...");
             try
             {
-                await RefreshChatsAsync();
-                await RefreshMessagesAsync(false);
+                var chatsChanged = await RefreshChatsAsync();
+                if (chatsChanged) await RefreshMessagesAsync(false);
             }
             catch (Exception ex) { ShowStatus(ex.Message, true); }
             finally { _isRefreshing = false; SetSyncing(false, null); }
@@ -462,7 +475,7 @@ namespace WpBlueBubbles
             if (!_updatingRecipient) _composeSelectedChat = null;
             _recipientMatches.Clear();
             foreach (var chat in _allChats.Where(chat => string.IsNullOrWhiteSpace(query) || chat.Title.IndexOf(query, StringComparison.OrdinalIgnoreCase) >= 0 || chat.ParticipantSummary.IndexOf(query, StringComparison.OrdinalIgnoreCase) >= 0 || (chat.ParticipantAddresses != null && chat.ParticipantAddresses.Any(address => address.IndexOf(query, StringComparison.OrdinalIgnoreCase) >= 0))).Take(20)) _recipientMatches.Add(chat);
-            ComposeHint.Text = string.IsNullOrWhiteSpace(query) ? "Enter a phone number or email address, then write a message." : _recipientMatches.Count == 0 ? "A new conversation will be created for this recipient." : "Select an existing conversation or send to the address you entered.";
+            ComposeHint.Text = string.IsNullOrWhiteSpace(query) ? "Enter a phone number or email address, then write a message." : "Select an existing conversation or send to the address you entered.";
         }
 
         private async void ComposeSend_Click(object sender, RoutedEventArgs e) { await SendComposedMessageAsync(); }
@@ -552,6 +565,7 @@ namespace WpBlueBubbles
 
         private async void MessagesPerChatSlider_ValueChanged(object sender, Windows.UI.Xaml.Controls.Primitives.RangeBaseValueChangedEventArgs e)
         {
+            if (!_settingsLoaded) return;
             _messagesPerChat = Math.Max(1, (int)Math.Round(e.NewValue));
             SettingsStore.SaveSyncOptions(_messagesPerChat, _syncTimeframeDays);
             UpdateSyncDescription();
@@ -560,6 +574,7 @@ namespace WpBlueBubbles
 
         private async void SyncTimeframeBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
+            if (!_settingsLoaded) return;
             var item = SyncTimeframeBox.SelectedItem as ComboBoxItem;
             if (item?.Tag != null) _syncTimeframeDays = int.Parse(item.Tag.ToString());
             SettingsStore.SaveSyncOptions(_messagesPerChat, _syncTimeframeDays);
@@ -590,6 +605,7 @@ namespace WpBlueBubbles
 
         private void SetSyncing(bool syncing, string detail)
         {
+            if (!UsePhoneSyncStatus) return;
             if (UseLegacyInAppSyncStatus && syncing)
             {
                 StatusText.Text = detail ?? "Syncing...";
@@ -664,24 +680,13 @@ namespace WpBlueBubbles
             ConnectedSettingsHeader.Visibility = connected ? Visibility.Visible : Visibility.Collapsed;
             ConnectedSettingsActions.Visibility = connected ? Visibility.Visible : Visibility.Collapsed;
             SettingsBackButton.Visibility = connected ? Visibility.Visible : Visibility.Collapsed;
+            SettingsHeader.Visibility = connected ? Visibility.Visible : Visibility.Collapsed;
         }
 
         private async void SignOut_Click(object sender, RoutedEventArgs e)
         {
-            var dialog = new MessageDialog("Sign out of this BlueBubbles server on this device? Messages will not be deleted from the server.", "Sign out?");
-            var confirm = new UICommand("Sign out");
-            dialog.Commands.Add(confirm);
-            dialog.Commands.Add(new UICommand("Cancel"));
-            dialog.DefaultCommandIndex = 1;
-            dialog.CancelCommandIndex = 1;
-            if (await dialog.ShowAsync() != confirm) return;
-            SignOutLocally();
-        }
-
-        private async void Reset_Click(object sender, RoutedEventArgs e)
-        {
-            var dialog = new MessageDialog("Reset BlueBubbles on this device? Messages will not be deleted from the server.", "Reset app?");
-            var confirm = new UICommand("Reset app");
+            var dialog = new MessageDialog("Reset BlueBubbles on this device? Messages will not be deleted from the server.", "Sign out and reset?");
+            var confirm = new UICommand("Sign out and reset");
             dialog.Commands.Add(confirm);
             dialog.Commands.Add(new UICommand("Cancel"));
             dialog.DefaultCommandIndex = 1;
@@ -699,6 +704,7 @@ namespace WpBlueBubbles
             _allChats.Clear();
             _chats.Clear();
             _messages.Clear();
+            _chatStateSignature = null;
             SettingsStore.Clear();
             ServerAddressBox.Text = string.Empty;
             ServerPasswordBox.Password = string.Empty;
