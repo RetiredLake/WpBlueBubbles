@@ -141,16 +141,25 @@ namespace WpBlueBubbles
             {
                 var type = args.GetType();
                 if (type.FullName != "Windows.ApplicationModel.Activation.ContactMessageActivatedEventArgs") return string.Empty;
-                var serviceUserId = type.GetProperty("ServiceUserId")?.GetValue(args) as string;
-                if (!string.IsNullOrWhiteSpace(serviceUserId)) return serviceUserId;
                 var contact = type.GetProperty("Contact")?.GetValue(args);
                 var phones = contact?.GetType().GetProperty("Phones")?.GetValue(contact) as System.Collections.IEnumerable;
-                if (phones == null) return string.Empty;
-                foreach (var phone in phones)
+                if (phones != null)
                 {
-                    var number = phone?.GetType().GetProperty("Number")?.GetValue(phone) as string;
-                    if (!string.IsNullOrWhiteSpace(number)) return number;
+                    foreach (var phone in phones)
+                    {
+                        var number = phone?.GetType().GetProperty("Number")?.GetValue(phone) as string;
+                        if (!string.IsNullOrWhiteSpace(number)) return number;
+                    }
                 }
+                var emails = contact?.GetType().GetProperty("Emails")?.GetValue(contact) as System.Collections.IEnumerable;
+                if (emails != null)
+                    foreach (var email in emails)
+                    {
+                        var address = email?.GetType().GetProperty("Address")?.GetValue(email) as string;
+                        if (!string.IsNullOrWhiteSpace(address)) return address;
+                    }
+                var serviceUserId = type.GetProperty("ServiceUserId")?.GetValue(args) as string;
+                if (!string.IsNullOrWhiteSpace(serviceUserId)) return serviceUserId;
             }
             catch { }
             return string.Empty;

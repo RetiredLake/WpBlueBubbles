@@ -44,7 +44,7 @@ namespace WpBlueBubbles
         private bool _isRefreshing;
         private bool _isQrScanInProgress;
         private int _messagesPerChat = 10;
-        private int _syncTimeframeDays;
+        private int _syncTimeframeDays = 7;
         private IReadOnlyDictionary<string, string> _contactNames = new Dictionary<string, string>();
         private ShareOperation _shareOperation;
         private StorageFile _sharedFile;
@@ -54,6 +54,7 @@ namespace WpBlueBubbles
         private bool _updatingRecipient;
         private bool _statusIsError;
         private readonly InputPane _inputPane;
+        private static readonly bool UseLegacyInAppSyncStatus = false;
 
         public MainPage()
         {
@@ -74,6 +75,8 @@ namespace WpBlueBubbles
 
         private async void MainPage_Loaded(object sender, RoutedEventArgs e)
         {
+            ApplicationView.GetForCurrentView().SetDesiredBoundsMode(ApplicationViewBoundsMode.UseVisible);
+            await EnsurePhoneStatusBarAsync();
             UpdateResponsiveLayout();
             SettingsStore.EnsureVersion016Defaults();
             var settings = SettingsStore.Load();
@@ -120,6 +123,9 @@ namespace WpBlueBubbles
             {
                 ChatColumn.Width = new GridLength(360);
                 DividerColumn.Width = new GridLength(1);
+                ConversationColumn.Width = new GridLength(1, GridUnitType.Star);
+                Grid.SetColumn(ChatsPane, 0);
+                Grid.SetColumnSpan(ChatsPane, 1);
                 Grid.SetColumn(ConversationPane, 2);
                 Grid.SetColumnSpan(ConversationPane, 1);
                 ChatsPane.Visibility = Visibility.Visible;
@@ -132,6 +138,9 @@ namespace WpBlueBubbles
             {
                 ChatColumn.Width = new GridLength(1, GridUnitType.Star);
                 DividerColumn.Width = new GridLength(0);
+                ConversationColumn.Width = new GridLength(0);
+                Grid.SetColumn(ChatsPane, 0);
+                Grid.SetColumnSpan(ChatsPane, 3);
                 Grid.SetColumn(ConversationPane, 0);
                 Grid.SetColumnSpan(ConversationPane, 3);
                 ChatsPane.Visibility = Visibility.Visible;
@@ -510,14 +519,10 @@ namespace WpBlueBubbles
         private async Task OpenContactsAsync()
         {
             if (_allContacts.Count == 0) await LoadContactsAsync();
-            if (_allContacts.Count == 0)
-            {
-                ShowStatus("Contacts permission is needed to show your phone contacts.", true);
-                return;
-            }
             ContactsSearchBox.Text = string.Empty;
             ApplyContactsSearch();
             ContactsOverlay.Visibility = Visibility.Visible;
+            if (_allContacts.Count == 0) ShowStatus("No phone contacts are available. Check the contacts permission in Settings.", true);
         }
 
         private void CloseContacts_Click(object sender, RoutedEventArgs e)
@@ -585,16 +590,53 @@ namespace WpBlueBubbles
 
         private void SetSyncing(bool syncing, string detail)
         {
-            if (syncing)
+            if (UseLegacyInAppSyncStatus && syncing)
             {
                 StatusText.Text = detail ?? "Syncing...";
                 StatusText.Foreground = new Windows.UI.Xaml.Media.SolidColorBrush(Windows.UI.Colors.White);
                 StatusBar.Visibility = Visibility.Visible;
             }
-            else if (!_statusIsError)
+            else if (UseLegacyInAppSyncStatus && !_statusIsError)
             {
                 StatusBar.Visibility = Visibility.Collapsed;
             }
+            UpdatePhoneSyncStatus(syncing, detail);
+            if (UseLegacyInAppSyncStatus) UpdateLegacyInAppSyncStatus(syncing, detail);
+        }
+
+        private static async Task EnsurePhoneStatusBarAsync()
+        {
+            try
+            {
+                var statusBarType = Type.GetType("Windows.UI.ViewManagement.StatusBar, Windows, ContentType=WindowsRuntime");
+                var phoneStatus = statusBarType?.GetMethod("GetForCurrentView").Invoke(null, null);
+                var action = phoneStatus?.GetType().GetMethod("ShowAsync").Invoke(phoneStatus, null) as Windows.Foundation.IAsyncAction;
+                if (action != null) await action;
+            }
+            catch { }
+        }
+
+        private static void UpdatePhoneSyncStatus(bool syncing, string detail)
+        {
+            try
+            {
+                // The W10M status bar metadata is absent from the desktop SDK reference set.
+                // This still invokes the native StatusBar.ProgressIndicator API on phone at runtime.
+                var statusBarType = Type.GetType("Windows.UI.ViewManagement.StatusBar, Windows, ContentType=WindowsRuntime");
+                if (statusBarType == null) return;
+                var phoneStatus = statusBarType.GetMethod("GetForCurrentView").Invoke(null, null);
+                var indicator = statusBarType.GetProperty("ProgressIndicator").GetValue(phoneStatus);
+                var indicatorType = indicator.GetType();
+                indicatorType.GetProperty("Text").SetValue(indicator, detail ?? string.Empty);
+                indicatorType.GetProperty("ProgressValue").SetValue(indicator, null);
+                indicatorType.GetMethod(syncing ? "ShowAsync" : "HideAsync").Invoke(indicator, null);
+            }
+            catch { }
+        }
+
+        // The old bottom in-app status implementation remains available for diagnostics.
+        private static void UpdateLegacyInAppSyncStatus(bool syncing, string detail)
+        {
             try
             {
                 var statusBarType = Type.GetType("Windows.UI.ViewManagement.StatusBar, Windows, ContentType=WindowsRuntime");
@@ -711,6 +753,7 @@ namespace WpBlueBubbles
             var tileId = "chat-" + Convert.ToBase64String(Encoding.UTF8.GetBytes(_selectedChat.Guid)).TrimEnd('=').Replace('+', '-').Replace('/', '_');
             if (SecondaryTile.Exists(tileId)) { ShowStatus("This conversation is already pinned to Start.", false); return; }
             var tile = new SecondaryTile(tileId, _selectedChat.Title, "chat=" + Uri.EscapeDataString(_selectedChat.Guid), new Uri("ms-appx:///Assets/Square150x150Logo.png"), TileSize.Square150x150);
+            tile.VisualElements.ShowNameOnSquare150x150Logo = true;
             await tile.RequestCreateAsync();
         }
 
@@ -761,6 +804,13 @@ namespace WpBlueBubbles
         {
             if (UseSinglePaneLayout)
             {
+                ChatColumn.Width = new GridLength(1, GridUnitType.Star);
+                DividerColumn.Width = new GridLength(0);
+                ConversationColumn.Width = new GridLength(0);
+                Grid.SetColumn(ChatsPane, 0);
+                Grid.SetColumnSpan(ChatsPane, 3);
+                Grid.SetColumn(ConversationPane, 0);
+                Grid.SetColumnSpan(ConversationPane, 3);
                 ChatsPane.Visibility = Visibility.Visible;
                 ConversationPane.Visibility = Visibility.Collapsed;
                 MenuButton.Visibility = Visibility.Visible;
@@ -775,6 +825,9 @@ namespace WpBlueBubbles
         {
             ChatColumn.Width = new GridLength(1, GridUnitType.Star);
             DividerColumn.Width = new GridLength(0);
+            ConversationColumn.Width = new GridLength(0);
+            Grid.SetColumn(ChatsPane, 0);
+            Grid.SetColumnSpan(ChatsPane, 3);
             Grid.SetColumn(ConversationPane, 0);
             Grid.SetColumnSpan(ConversationPane, 3);
             ChatsPane.Visibility = Visibility.Collapsed;
@@ -868,6 +921,7 @@ namespace WpBlueBubbles
             if (!string.IsNullOrWhiteSpace(_sharedText)) MessageBox.Text = _sharedText;
             SharedAttachmentBanner.Text = BuildSharedPreview();
             SharedAttachmentBanner.Visibility = Visibility.Visible;
+            AttachmentBannerHost.Visibility = Visibility.Visible;
         }
 
         private void ClearAttachment_Click(object sender, RoutedEventArgs e)
@@ -889,6 +943,7 @@ namespace WpBlueBubbles
             _sharedText = null;
             SharedAttachmentBanner.Visibility = Visibility.Collapsed;
             SharedAttachmentBanner.Text = string.Empty;
+            AttachmentBannerHost.Visibility = Visibility.Collapsed;
             SharedComposePreview.Visibility = Visibility.Collapsed;
         }
 

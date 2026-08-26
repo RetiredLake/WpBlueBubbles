@@ -35,22 +35,26 @@ namespace WpBlueBubbles.Services
 
         private static void AddName(IDictionary<string, string> names, string address, string name)
         {
-            if (string.IsNullOrWhiteSpace(address) || names.ContainsKey(address)) return;
-            names[address] = name;
-            var normalized = NormalizePhone(address);
-            if (!string.IsNullOrWhiteSpace(normalized)) names[normalized] = name;
+            if (string.IsNullOrWhiteSpace(address) || string.IsNullOrWhiteSpace(name)) return;
+            if (!names.ContainsKey(address)) names[address] = name;
+            var normalized = NormalizeAddress(address);
+            if (!string.IsNullOrWhiteSpace(normalized) && !names.ContainsKey(normalized)) names[normalized] = name;
         }
 
         public static string Lookup(IReadOnlyDictionary<string, string> names, string address)
         {
             if (string.IsNullOrWhiteSpace(address)) return string.Empty;
             string name;
-            return names.TryGetValue(address, out name) || names.TryGetValue(NormalizePhone(address), out name) ? name : string.Empty;
+            return names.TryGetValue(address, out name) || names.TryGetValue(NormalizeAddress(address), out name) ? name : string.Empty;
         }
 
-        private static string NormalizePhone(string value)
+        private static string NormalizeAddress(string value)
         {
-            return new string(value.Where(char.IsDigit).ToArray());
+            if (string.IsNullOrWhiteSpace(value)) return string.Empty;
+            if (value.IndexOf('@') >= 0) return value.Trim().ToLowerInvariant();
+            var digits = new string(value.Where(char.IsDigit).ToArray());
+            // BlueBubbles normally reports E.164 while Lumia contacts commonly omit +1.
+            return digits.Length == 11 && digits.StartsWith("1") ? digits.Substring(1) : digits.Length > 10 ? digits.Substring(digits.Length - 10) : digits;
         }
     }
 
