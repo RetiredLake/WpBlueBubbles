@@ -1,0 +1,20 @@
+# Build and deployment output
+[Bb]in/
+[Oo]bj/
+src/WpBlueBubbles/AppPackages/
+
+# Local developer and user state
+*.user
+*.suo
+.vs/
+.packages/
+UpgradeLog*.htm
+
+# Local archives, release artifacts, and scratch work
+backups/
+releases/
+work/
+Universal-Builds/
+READY-TO-SIDELOAD-*/
+Lumia-Install-Only/
+Release-*/

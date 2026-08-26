@@ -2,12 +2,22 @@ using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
+using System.Reflection;
 using System.Threading.Tasks;
 using Windows.System;
+using Windows.ApplicationModel.DataTransfer;
+using Windows.ApplicationModel.DataTransfer.ShareTarget;
+using Windows.ApplicationModel.Contacts;
+using Windows.Foundation;
+using Windows.UI.Input;
+using Windows.Storage;
+using Windows.Storage.Pickers;
 using Windows.UI.Core;
+using Windows.UI.Popups;
 using Windows.UI.Xaml;
 using Windows.UI.Xaml.Controls;
 using Windows.UI.Xaml.Input;
+using Windows.UI.Xaml.Media;
 using WpBlueBubbles.Models;
 using WpBlueBubbles.Services;
 
@@ -16,18 +26,31 @@ namespace WpBlueBubbles
     public sealed partial class MainPage : Page
     {
         private readonly ObservableCollection<ChatItem> _chats = new ObservableCollection<ChatItem>();
+        private readonly List<ChatItem> _allChats = new List<ChatItem>();
+        private readonly ObservableCollection<ChatItem> _recipientMatches = new ObservableCollection<ChatItem>();
         private readonly ObservableCollection<MessageItem> _messages = new ObservableCollection<MessageItem>();
         private readonly DispatcherTimer _pollTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(4) };
+        private readonly DispatcherTimer _qrScanTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(450) };
         private BlueBubblesClient _client;
+        private QrCameraScanner _qrScanner;
         private ChatItem _selectedChat;
         private bool _isRefreshing;
+        private bool _isQrScanInProgress;
+        private int _messagesPerChat = 25;
+        private int _syncTimeframeDays;
+        private IReadOnlyDictionary<string, string> _contactNames = new Dictionary<string, string>();
+        private ShareOperation _shareOperation;
+        private StorageFile _sharedFile;
+        private string _sharedText;
 
         public MainPage()
         {
             InitializeComponent();
             ChatsList.ItemsSource = _chats;
             MessagesList.ItemsSource = _messages;
+            RecipientMatchesList.ItemsSource = _recipientMatches;
             _pollTimer.Tick += PollTimer_Tick;
+            _qrScanTimer.Tick += QrScanTimer_Tick;
             Loaded += MainPage_Loaded;
             Unloaded += MainPage_Unloaded;
             SizeChanged += MainPage_SizeChanged;
@@ -40,6 +63,12 @@ namespace WpBlueBubbles
             var settings = SettingsStore.Load();
             ServerAddressBox.Text = settings.Address ?? string.Empty;
             ServerPasswordBox.Password = settings.Password ?? string.Empty;
+            _messagesPerChat = settings.MessagesPerChat;
+            _syncTimeframeDays = settings.SyncTimeframeDays;
+            MessagesPerChatSlider.Value = _messagesPerChat;
+            SelectTimeframe(_syncTimeframeDays);
+            UpdateSyncDescription();
+            NotificationsToggle.IsOn = ApplicationData.Current.LocalSettings.Values.ContainsKey("NotificationsEnabled") && (bool)ApplicationData.Current.LocalSettings.Values["NotificationsEnabled"];
             if (!settings.IsComplete)
             {
                 SettingsOverlay.Visibility = Visibility.Visible;
@@ -51,6 +80,8 @@ namespace WpBlueBubbles
         private void MainPage_Unloaded(object sender, RoutedEventArgs e)
         {
             _pollTimer.Stop();
+            _qrScanTimer.Stop();
+            _qrScanner?.Dispose();
             if (_client != null) _client.Dispose();
             SystemNavigationManager.GetForCurrentView().BackRequested -= MainPage_BackRequested;
         }
@@ -61,6 +92,8 @@ namespace WpBlueBubbles
         {
             if (ActualWidth >= 720)
             {
+                ChatColumn.Width = new GridLength(360);
+                DividerColumn.Width = new GridLength(1);
                 ChatsPane.Visibility = Visibility.Visible;
                 ConversationPane.Visibility = Visibility.Visible;
                 MenuButton.Visibility = Visibility.Visible;
@@ -69,6 +102,8 @@ namespace WpBlueBubbles
             }
             else if (_selectedChat == null || ChatsPane.Visibility == Visibility.Visible)
             {
+                ChatColumn.Width = new GridLength(1, GridUnitType.Star);
+                DividerColumn.Width = new GridLength(0);
                 ChatsPane.Visibility = Visibility.Visible;
                 ConversationPane.Visibility = Visibility.Collapsed;
                 MenuButton.Visibility = Visibility.Visible;
@@ -87,10 +122,13 @@ namespace WpBlueBubbles
                 _client = new BlueBubblesClient(address, password);
                 await _client.TestConnectionAsync();
                 SettingsStore.Save(address, password);
+                SettingsStore.SaveSyncOptions(_messagesPerChat, _syncTimeframeDays);
+                SetSyncing(true, "Syncing chats...");
+                await LoadContactsAsync();
                 await RefreshChatsAsync();
                 _pollTimer.Start();
                 if (closeSettings) SettingsOverlay.Visibility = Visibility.Collapsed;
-                ShowStatus("Connected", false);
+                ShowStatus(string.Empty, false);
             }
             catch (Exception ex)
             {
@@ -100,6 +138,7 @@ namespace WpBlueBubbles
             }
             finally
             {
+                SetSyncing(false, null);
                 ConnectButton.IsEnabled = true;
                 ConnectProgress.IsActive = false;
             }
@@ -110,20 +149,29 @@ namespace WpBlueBubbles
             if (_client == null) return;
             var chats = await _client.GetChatsAsync();
             var selectedGuid = _selectedChat == null ? null : _selectedChat.Guid;
-            _chats.Clear();
-            foreach (var chat in chats) _chats.Add(chat);
-            if (selectedGuid != null) _selectedChat = _chats.FirstOrDefault(c => c.Guid == selectedGuid) ?? _selectedChat;
+            _allChats.Clear();
+            _allChats.AddRange(chats);
+            foreach (var chat in _allChats) chat.ApplyContactNames(_contactNames);
+            ApplyChatSearch();
+            if (selectedGuid != null) _selectedChat = _allChats.FirstOrDefault(c => c.Guid == selectedGuid) ?? _selectedChat;
         }
 
         private async Task RefreshMessagesAsync(bool forceScroll)
         {
             if (_client == null || _selectedChat == null) return;
-            var received = await _client.GetMessagesAsync(_selectedChat.Guid, 100);
+            var received = await _client.GetMessagesAsync(_selectedChat.Guid, _messagesPerChat, _syncTimeframeDays);
             var priorLastGuid = _messages.Count == 0 ? null : _messages[_messages.Count - 1].Guid;
             var newLastGuid = received.Count == 0 ? null : received[received.Count - 1].Guid;
             if (!forceScroll && priorLastGuid == newLastGuid && _messages.Count == received.Count) return;
             _messages.Clear();
-            foreach (var message in received) _messages.Add(message);
+            var total = received.Count;
+            for (var i = 0; i < total; i++)
+            {
+                var message = received[i];
+                if (message.IsImageAttachment) message.SetAttachmentUri(_client.GetAttachmentDownloadUri(message.AttachmentGuid));
+                _messages.Add(message);
+            }
+            SetSyncing(true, "Syncing message " + total + " of " + Math.Max(total, _messagesPerChat) + "...");
             if (_messages.Count > 0) MessagesList.ScrollIntoView(_messages[_messages.Count - 1]);
         }
 
@@ -131,13 +179,14 @@ namespace WpBlueBubbles
         {
             if (_isRefreshing) return;
             _isRefreshing = true;
+            SetSyncing(true, "Syncing chats...");
             try
             {
                 await RefreshChatsAsync();
                 await RefreshMessagesAsync(false);
             }
             catch (Exception ex) { ShowStatus(ex.Message, true); }
-            finally { _isRefreshing = false; }
+            finally { _isRefreshing = false; SetSyncing(false, null); }
         }
 
         private async void ChatsList_ItemClick(object sender, ItemClickEventArgs e)
@@ -157,20 +206,23 @@ namespace WpBlueBubbles
                 SystemNavigationManager.GetForCurrentView().AppViewBackButtonVisibility = AppViewBackButtonVisibility.Visible;
             }
             ShowStatus("Loading messages...", false);
-            try { await RefreshMessagesAsync(true); ShowStatus(string.Empty, false); }
+            try { SetSyncing(true, "Syncing messages..."); await RefreshMessagesAsync(true); ShowStatus(string.Empty, false); }
             catch (Exception ex) { ShowStatus(ex.Message, true); }
+            finally { SetSyncing(false, null); }
         }
 
         private async Task SendCurrentMessageAsync()
         {
             var text = MessageBox.Text.Trim();
-            if (_client == null || _selectedChat == null || text.Length == 0) return;
+            if (_client == null || _selectedChat == null || (text.Length == 0 && _sharedFile == null)) return;
             SendButton.IsEnabled = false;
             MessageBox.IsEnabled = false;
             try
             {
-                await _client.SendTextAsync(_selectedChat.Guid, text);
+                if (_sharedFile != null) await _client.SendPhotoAsync(_selectedChat.Guid, _sharedFile);
+                if (text.Length > 0) await _client.SendTextAsync(_selectedChat.Guid, text);
                 MessageBox.Text = string.Empty;
+                CompleteSharedContent();
                 await RefreshMessagesAsync(true);
             }
             catch (Exception ex) { ShowStatus(ex.Message, true); }
@@ -218,7 +270,198 @@ namespace WpBlueBubbles
 
             ServerAddressBox.Text = payload.Address;
             ServerPasswordBox.Password = payload.Password;
+            QrPayloadBox.Text = string.Empty;
+            QrPayloadBox.Visibility = Visibility.Collapsed;
             await StartClientAsync(payload.Address, payload.Password, true);
+        }
+
+        private async void ScanQr_Click(object sender, RoutedEventArgs e)
+        {
+            ConnectError.Text = string.Empty;
+            try
+            {
+                _qrScanner?.Dispose();
+                _qrScanner = new QrCameraScanner();
+                QrScannerOverlay.Visibility = Visibility.Visible;
+                await _qrScanner.StartAsync(QrCameraPreview);
+                _qrScanTimer.Start();
+            }
+            catch (Exception ex)
+            {
+                await StopQrScannerAsync();
+                ConnectError.Text = "Camera access is needed to scan a setup QR code: " + ex.Message;
+            }
+        }
+
+        private async void QrScanTimer_Tick(object sender, object e)
+        {
+            if (_isQrScanInProgress || _qrScanner == null) return;
+            _isQrScanInProgress = true;
+            try
+            {
+                var payloadText = await _qrScanner.TryReadAsync();
+                if (string.IsNullOrWhiteSpace(payloadText)) return;
+                QrPayloadBox.Text = payloadText;
+                await StopQrScannerAsync();
+                ConnectQr_Click(this, null);
+            }
+            catch { }
+            finally { _isQrScanInProgress = false; }
+        }
+
+        private async void CancelQrScan_Click(object sender, RoutedEventArgs e) { await StopQrScannerAsync(); }
+
+        private async Task StopQrScannerAsync()
+        {
+            _qrScanTimer.Stop();
+            if (_qrScanner != null) await _qrScanner.StopAsync(QrCameraPreview);
+            QrScannerOverlay.Visibility = Visibility.Collapsed;
+        }
+
+        private async void Attach_Click(object sender, RoutedEventArgs e)
+        {
+            if (_client == null || _selectedChat == null) return;
+            var picker = new FileOpenPicker { SuggestedStartLocation = PickerLocationId.PicturesLibrary };
+            picker.FileTypeFilter.Add(".jpg");
+            picker.FileTypeFilter.Add(".jpeg");
+            picker.FileTypeFilter.Add(".png");
+            picker.FileTypeFilter.Add(".heic");
+            picker.FileTypeFilter.Add(".gif");
+            picker.FileTypeFilter.Add(".pdf");
+            var file = await picker.PickSingleFileAsync();
+            if (file == null) return;
+            AttachButton.IsEnabled = false;
+            try
+            {
+                ShowStatus("Uploading photo...", false);
+                await _client.SendPhotoAsync(_selectedChat.Guid, file);
+                await RefreshMessagesAsync(true);
+                ShowStatus(string.Empty, false);
+            }
+            catch (Exception ex) { ShowStatus(ex.Message, true); }
+            finally { AttachButton.IsEnabled = true; }
+        }
+
+        private async void Message_Holding(object sender, HoldingRoutedEventArgs e)
+        {
+            if (e.HoldingState != HoldingState.Started) return;
+            var element = sender as FrameworkElement;
+            var message = element?.DataContext as MessageItem;
+            if (message == null || string.IsNullOrWhiteSpace(message.Text)) return;
+            var menu = new PopupMenu();
+            menu.Commands.Add(new UICommand("Copy"));
+            var point = element.TransformToVisual(null).TransformPoint(new Point());
+            var chosen = await menu.ShowForSelectionAsync(new Rect(point, element.RenderSize));
+            if (chosen == null) return;
+            var data = new DataPackage();
+            data.SetText(message.Text);
+            Clipboard.SetContent(data);
+        }
+
+        private void Compose_Click(object sender, RoutedEventArgs e)
+        {
+            OpenCompose();
+        }
+
+        private void OpenCompose()
+        {
+            RecipientBox.Text = string.Empty;
+            _recipientMatches.Clear();
+            foreach (var chat in _allChats.Take(12)) _recipientMatches.Add(chat);
+            ComposeOverlay.Visibility = Visibility.Visible;
+            SharedComposePreview.Text = BuildSharedPreview();
+            SharedComposePreview.Visibility = string.IsNullOrWhiteSpace(SharedComposePreview.Text) ? Visibility.Collapsed : Visibility.Visible;
+            RecipientBox.Focus(FocusState.Programmatic);
+        }
+
+        private void CloseCompose_Click(object sender, RoutedEventArgs e)
+        {
+            ComposeOverlay.Visibility = Visibility.Collapsed;
+            if (_shareOperation != null) CompleteSharedContent();
+        }
+
+        private async void RecipientMatchesList_ItemClick(object sender, ItemClickEventArgs e)
+        {
+            ComposeOverlay.Visibility = Visibility.Collapsed;
+            var chat = e.ClickedItem as ChatItem;
+            if (chat == null) return;
+            _selectedChat = chat;
+            PageTitle.Text = chat.Title;
+            EmptyConversation.Visibility = Visibility.Collapsed;
+            MessagesList.Visibility = Visibility.Visible;
+            Composer.Visibility = Visibility.Visible;
+            if (ActualWidth < 720) ReturnToConversation();
+            StageSharedContentInComposer();
+            try { SetSyncing(true, "Syncing messages..."); await RefreshMessagesAsync(true); }
+            catch (Exception ex) { ShowStatus(ex.Message, true); }
+            finally { SetSyncing(false, null); }
+        }
+
+        private void RecipientBox_TextChanged(object sender, TextChangedEventArgs e)
+        {
+            var query = RecipientBox.Text.Trim();
+            _recipientMatches.Clear();
+            foreach (var chat in _allChats.Where(chat => string.IsNullOrWhiteSpace(query) || chat.Title.IndexOf(query, StringComparison.OrdinalIgnoreCase) >= 0 || chat.ParticipantSummary.IndexOf(query, StringComparison.OrdinalIgnoreCase) >= 0).Take(20)) _recipientMatches.Add(chat);
+            ComposeHint.Text = _recipientMatches.Count == 0 && !string.IsNullOrWhiteSpace(query) ? "No existing conversation found. Sending to a new recipient will be added after the recipient flow is confirmed on your server." : "Choose an existing conversation.";
+        }
+
+        private async void MessagesPerChatSlider_ValueChanged(object sender, Windows.UI.Xaml.Controls.Primitives.RangeBaseValueChangedEventArgs e)
+        {
+            _messagesPerChat = Math.Max(1, (int)Math.Round(e.NewValue));
+            SettingsStore.SaveSyncOptions(_messagesPerChat, _syncTimeframeDays);
+            UpdateSyncDescription();
+            if (_selectedChat != null) await RefreshMessagesAsync(true);
+        }
+
+        private async void SyncTimeframeBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            var item = SyncTimeframeBox.SelectedItem as ComboBoxItem;
+            if (item?.Tag != null) _syncTimeframeDays = int.Parse(item.Tag.ToString());
+            SettingsStore.SaveSyncOptions(_messagesPerChat, _syncTimeframeDays);
+            UpdateSyncDescription();
+            if (_selectedChat != null) await RefreshMessagesAsync(true);
+        }
+
+        private void NotificationsToggle_Toggled(object sender, RoutedEventArgs e)
+        {
+            ApplicationData.Current.LocalSettings.Values["NotificationsEnabled"] = NotificationsToggle.IsOn;
+        }
+
+        private void SelectTimeframe(int days)
+        {
+            for (var i = 0; i < SyncTimeframeBox.Items.Count; i++)
+            {
+                var item = SyncTimeframeBox.Items[i] as ComboBoxItem;
+                if (item?.Tag?.ToString() == days.ToString()) { SyncTimeframeBox.SelectedIndex = i; return; }
+            }
+            SyncTimeframeBox.SelectedIndex = 0;
+        }
+
+        private string BuildSyncDescription()
+        {
+            var range = _syncTimeframeDays == 0 ? "all time" : _syncTimeframeDays == 30 ? "the last 30 days" : "the last year";
+            return "Loading the latest " + _messagesPerChat + " messages per chat from " + range + ".";
+        }
+
+        private void UpdateSyncDescription()
+        {
+            if (SyncDescription != null) SyncDescription.Text = BuildSyncDescription();
+        }
+
+        private void SetSyncing(bool syncing, string detail)
+        {
+            try
+            {
+                var statusBarType = Type.GetType("Windows.UI.ViewManagement.StatusBar, Windows, ContentType=WindowsRuntime");
+                if (statusBarType == null) return;
+                var phoneStatus = statusBarType.GetMethod("GetForCurrentView").Invoke(null, null);
+                var indicator = statusBarType.GetProperty("ProgressIndicator").GetValue(phoneStatus);
+                var indicatorType = indicator.GetType();
+                indicatorType.GetProperty("Text").SetValue(indicator, detail ?? string.Empty);
+                indicatorType.GetProperty("ProgressValue").SetValue(indicator, syncing ? (double?)0.5 : null);
+                indicatorType.GetMethod(syncing ? "ShowAsync" : "HideAsync").Invoke(indicator, null);
+            }
+            catch { }
         }
 
         private void Menu_Click(object sender, RoutedEventArgs e) { NavigationSplitView.IsPaneOpen = !NavigationSplitView.IsPaneOpen; }
@@ -245,16 +488,102 @@ namespace WpBlueBubbles
             }
         }
 
+        private void ReturnToConversation()
+        {
+            ChatsPane.Visibility = Visibility.Collapsed;
+            ConversationPane.Visibility = Visibility.Visible;
+            MenuButton.Visibility = Visibility.Collapsed;
+            BackButton.Visibility = Visibility.Visible;
+            SystemNavigationManager.GetForCurrentView().AppViewBackButtonVisibility = AppViewBackButtonVisibility.Visible;
+        }
+
         private void SearchBox_TextChanged(object sender, TextChangedEventArgs e)
         {
-            // Server-side chat search is deferred; keep the field ready for the next iteration.
+            ApplyChatSearch();
+        }
+
+        private void ApplyChatSearch()
+        {
+            var query = SearchBox == null ? string.Empty : SearchBox.Text.Trim();
+            _chats.Clear();
+            foreach (var chat in _allChats.Where(chat => string.IsNullOrWhiteSpace(query) || chat.Title.IndexOf(query, StringComparison.OrdinalIgnoreCase) >= 0 || chat.Preview.IndexOf(query, StringComparison.OrdinalIgnoreCase) >= 0 || chat.ParticipantSummary.IndexOf(query, StringComparison.OrdinalIgnoreCase) >= 0)) _chats.Add(chat);
+        }
+
+        private async Task LoadContactsAsync()
+        {
+            try { _contactNames = await new ContactsService().LoadNamesAsync(); }
+            catch { _contactNames = new Dictionary<string, string>(); }
+        }
+
+        public async void PrepareSharedContent(ShareOperation operation)
+        {
+            try
+            {
+                var view = operation.Data;
+                _shareOperation = operation;
+                operation.ReportStarted();
+                if (view.Contains(StandardDataFormats.StorageItems))
+                {
+                    var items = await view.GetStorageItemsAsync();
+                    _sharedFile = items.OfType<StorageFile>().FirstOrDefault();
+                    if (_sharedFile == null) { ShowStatus("No supported file was provided.", true); CompleteSharedContent(); return; }
+                }
+                if (view.Contains(StandardDataFormats.Text))
+                {
+                    _sharedText = await view.GetTextAsync();
+                }
+                if (_sharedFile == null && string.IsNullOrWhiteSpace(_sharedText)) { ShowStatus("No shareable item was provided.", true); CompleteSharedContent(); return; }
+                OpenCompose();
+            }
+            catch
+            {
+                operation.ReportError("BlueBubbles could not read the shared item.");
+                ClearSharedContent();
+            }
+        }
+
+        private string BuildSharedPreview()
+        {
+            if (_sharedFile != null && !string.IsNullOrWhiteSpace(_sharedText)) return "Sharing " + _sharedFile.Name + " and text.";
+            if (_sharedFile != null) return "Sharing " + _sharedFile.Name + ".";
+            return string.IsNullOrWhiteSpace(_sharedText) ? string.Empty : "Sharing text.";
+        }
+
+        private void StageSharedContentInComposer()
+        {
+            if (_sharedFile == null && string.IsNullOrWhiteSpace(_sharedText)) return;
+            if (!string.IsNullOrWhiteSpace(_sharedText)) MessageBox.Text = _sharedText;
+            SharedAttachmentBanner.Text = BuildSharedPreview();
+            SharedAttachmentBanner.Visibility = Visibility.Visible;
+        }
+
+        private void CompleteSharedContent()
+        {
+            try { _shareOperation?.ReportCompleted(); } catch { }
+            ClearSharedContent();
+        }
+
+        private void ClearSharedContent()
+        {
+            _shareOperation = null;
+            _sharedFile = null;
+            _sharedText = null;
+            SharedAttachmentBanner.Visibility = Visibility.Collapsed;
+            SharedComposePreview.Visibility = Visibility.Collapsed;
+        }
+
+        private void AttachmentImage_Failed(object sender, ExceptionRoutedEventArgs e)
+        {
+            var image = sender as Image;
+            var message = image?.DataContext as MessageItem;
+            if (message != null) message.MarkAttachmentFailed();
         }
 
         private void ShowStatus(string message, bool isError)
         {
             StatusText.Text = message;
             StatusText.Foreground = new Windows.UI.Xaml.Media.SolidColorBrush(isError ? Windows.UI.Color.FromArgb(255, 255, 140, 130) : Windows.UI.Colors.White);
-            StatusBar.Visibility = string.IsNullOrWhiteSpace(message) ? Visibility.Collapsed : Visibility.Visible;
+            StatusBar.Visibility = isError && !string.IsNullOrWhiteSpace(message) ? Visibility.Visible : Visibility.Collapsed;
         }
     }
 }

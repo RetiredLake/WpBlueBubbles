@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using Windows.Data.Json;
 
 namespace WpBlueBubbles.Models
@@ -11,6 +12,9 @@ namespace WpBlueBubbles.Models
         public string Preview { get; set; }
         public string TimeLabel { get; set; }
         public string Initials { get; set; }
+        public string ParticipantSummary { get; set; }
+        public List<string> ParticipantAddresses { get; set; }
+        public bool IsGroupChat { get; set; }
         public long LastMessageTimestamp { get; set; }
 
         public static ChatItem FromJson(JsonObject json)
@@ -19,6 +23,7 @@ namespace WpBlueBubbles.Models
             var displayName = JsonValueReader.String(json, "displayName");
             var identifier = JsonValueReader.String(json, "chatIdentifier");
             var participantNames = new List<string>();
+            var participantAddresses = new List<string>();
 
             JsonArray participants;
             if (JsonValueReader.TryArray(json, "participants", out participants))
@@ -28,7 +33,9 @@ namespace WpBlueBubbles.Models
                     if (value.ValueType != JsonValueType.Object) continue;
                     var handle = value.GetObject();
                     var name = JsonValueReader.String(handle, "displayName");
-                    if (string.IsNullOrWhiteSpace(name)) name = JsonValueReader.String(handle, "address");
+                    var address = JsonValueReader.String(handle, "address");
+                    if (!string.IsNullOrWhiteSpace(address)) participantAddresses.Add(address);
+                    if (string.IsNullOrWhiteSpace(name)) name = address;
                     if (!string.IsNullOrWhiteSpace(name)) participantNames.Add(name);
                 }
             }
@@ -55,8 +62,29 @@ namespace WpBlueBubbles.Models
                 Preview = preview,
                 LastMessageTimestamp = timestamp,
                 TimeLabel = DateLabels.Compact(timestamp),
-                Initials = MakeInitials(title)
+                Initials = MakeInitials(title),
+                IsGroupChat = participantNames.Count > 1,
+                ParticipantSummary = participantNames.Count > 1 ? string.Join(", ", participantNames) : participantNames.Count == 1 ? participantNames[0] : string.Empty,
+                ParticipantAddresses = participantAddresses
             };
+        }
+
+        public void ApplyContactNames(IReadOnlyDictionary<string, string> names)
+        {
+            if (ParticipantAddresses == null || ParticipantAddresses.Count == 0) return;
+            var resolved = ParticipantAddresses.Select(address => WpBlueBubbles.Services.ContactsService.Lookup(names, address)).Where(name => !string.IsNullOrWhiteSpace(name)).ToList();
+            if (resolved.Count == 0) return;
+            if (IsGroupChat)
+            {
+                ParticipantSummary = string.Join(", ", resolved);
+                if (Title.IndexOf("@", StringComparison.Ordinal) >= 0 || Title.IndexOf("+", StringComparison.Ordinal) >= 0) Title = ParticipantSummary;
+            }
+            else
+            {
+                Title = resolved[0];
+                ParticipantSummary = resolved[0];
+            }
+            Initials = MakeInitials(Title);
         }
 
         private static string MakeInitials(string title)

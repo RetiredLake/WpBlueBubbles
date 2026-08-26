@@ -1,4 +1,5 @@
 using Windows.ApplicationModel.Activation;
+using Windows.ApplicationModel.DataTransfer.ShareTarget;
 using Windows.Storage;
 using Windows.UI.Xaml;
 using Windows.UI.Xaml.Controls;
@@ -42,6 +43,20 @@ namespace WpBlueBubbles
                     frame.Content = new TextBlock { Text = "BlueBubbles could not start:\r\n\r\n" + ex, TextWrapping = TextWrapping.Wrap };
                 }
             }
+            Window.Current.Activate();
+        }
+
+        protected override void OnShareTargetActivated(ShareTargetActivatedEventArgs args)
+        {
+            var frame = Window.Current.Content as Frame;
+            if (frame == null)
+            {
+                frame = new Frame();
+                Window.Current.Content = frame;
+            }
+            if (frame.Content == null) frame.Navigate(typeof(MainPage));
+            var page = frame.Content as MainPage;
+            page?.PrepareSharedContent(args.ShareOperation);
             Window.Current.Activate();
         }
 

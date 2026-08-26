@@ -1,6 +1,7 @@
-<Application x:Class="WpBlueBubbles.App" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" RequestedTheme="Dark">
+<Application x:Class="WpBlueBubbles.App" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:local="using:WpBlueBubbles" RequestedTheme="Dark">
   <Application.Resources>
     <ResourceDictionary>
+      <local:BooleanToVisibilityConverter x:Key="BooleanToVisibilityConverter" />
       <Color x:Key="MessengerBlue">#0E639C</Color>
       <SolidColorBrush x:Key="MessengerBlueBrush" Color="{StaticResource MessengerBlue}" />
       <SolidColorBrush x:Key="AppBackgroundBrush" Color="#071117" />

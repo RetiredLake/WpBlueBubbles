@@ -7,6 +7,8 @@ namespace WpBlueBubbles.Services
     {
         public string Address { get; set; }
         public string Password { get; set; }
+        public int MessagesPerChat { get; set; }
+        public int SyncTimeframeDays { get; set; }
         public bool IsComplete { get { return !string.IsNullOrWhiteSpace(Address) && !string.IsNullOrWhiteSpace(Password); } }
     }
 
@@ -15,6 +17,8 @@ namespace WpBlueBubbles.Services
         private const string AddressKey = "ServerAddress";
         private const string CredentialResource = "WpBlueBubbles.Server";
         private const string CredentialUser = "guid";
+        private const string MessagesPerChatKey = "MessagesPerChat";
+        private const string SyncTimeframeDaysKey = "SyncTimeframeDays";
 
         public static ServerSettings Load()
         {
@@ -22,7 +26,9 @@ namespace WpBlueBubbles.Services
             return new ServerSettings
             {
                 Address = values.ContainsKey(AddressKey) ? values[AddressKey] as string : string.Empty,
-                Password = LoadPassword()
+                Password = LoadPassword(),
+                MessagesPerChat = values.ContainsKey(MessagesPerChatKey) ? (int)values[MessagesPerChatKey] : 25,
+                SyncTimeframeDays = values.ContainsKey(SyncTimeframeDaysKey) ? (int)values[SyncTimeframeDaysKey] : 0
             };
         }
 
@@ -41,6 +47,13 @@ namespace WpBlueBubbles.Services
             {
                 vault.Add(new PasswordCredential(CredentialResource, CredentialUser, password.Trim()));
             }
+        }
+
+        public static void SaveSyncOptions(int messagesPerChat, int timeframeDays)
+        {
+            var values = ApplicationData.Current.LocalSettings.Values;
+            values[MessagesPerChatKey] = messagesPerChat < 1 ? 1 : messagesPerChat;
+            values[SyncTimeframeDaysKey] = timeframeDays < 0 ? 0 : timeframeDays;
         }
 
         private static string LoadPassword()

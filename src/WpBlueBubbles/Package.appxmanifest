@@ -1,11 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <Package xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10" xmlns:mp="http://schemas.microsoft.com/appx/2014/phone/manifest" xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10" IgnorableNamespaces="uap mp">
-  <Identity Name="WpBlueBubbles" Publisher="CN=Nico" Version="0.1.0.5" />
+  <Identity Name="WpBlueBubbles" Publisher="CN=retiredlake" Version="0.1.0.10" />
   <mp:PhoneIdentity PhoneProductId="79f60ed4-a1a8-4791-bafd-03dd8f46c983" PhonePublisherId="00000000-0000-0000-0000-000000000000" />
   <Properties>
-    <DisplayName>BlueBubbles</DisplayName><PublisherDisplayName>Nico</PublisherDisplayName><Logo>Assets\StoreLogo.png</Logo>
+    <DisplayName>BlueBubbles</DisplayName><PublisherDisplayName>retiredlake</PublisherDisplayName><Logo>Assets\StoreLogo.png</Logo>
   </Properties>
-  <Dependencies><TargetDeviceFamily Name="Windows.Universal" MinVersion="10.0.16299.0" MaxVersionTested="10.0.19041.0" /></Dependencies>
+  <Dependencies><TargetDeviceFamily Name="Windows.Universal" MinVersion="10.0.15063.0" MaxVersionTested="10.0.19041.0" /></Dependencies>
   <Resources><Resource Language="x-generate" /></Resources>
   <Applications>
     <Application Id="App" Executable="$targetnametoken$.exe" EntryPoint="WpBlueBubbles.App">
@@ -13,7 +13,21 @@
         <uap:DefaultTile Wide310x150Logo="Assets\Wide310x150Logo.png" ShortName="BlueBubbles" />
         <uap:SplashScreen Image="Assets\SplashScreen.png" BackgroundColor="#0E639C" />
       </uap:VisualElements>
+      <Extensions>
+        <uap:Extension Category="windows.shareTarget">
+          <uap:ShareTarget>
+            <uap:SupportedFileTypes>
+              <uap:FileType>.jpg</uap:FileType>
+              <uap:FileType>.jpeg</uap:FileType>
+              <uap:FileType>.png</uap:FileType>
+              <uap:FileType>.gif</uap:FileType>
+            </uap:SupportedFileTypes>
+            <uap:DataFormat>Text</uap:DataFormat>
+            <uap:DataFormat>StorageItems</uap:DataFormat>
+          </uap:ShareTarget>
+        </uap:Extension>
+      </Extensions>
     </Application>
   </Applications>
-  <Capabilities><Capability Name="internetClient" /><Capability Name="privateNetworkClientServer" /></Capabilities>
+  <Capabilities><Capability Name="internetClient" /><Capability Name="privateNetworkClientServer" /><uap:Capability Name="contacts" /><DeviceCapability Name="webcam" /></Capabilities>
 </Package>

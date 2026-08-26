@@ -1,9 +1,11 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Net.Http;
 using System.Text;
 using System.Threading.Tasks;
 using Windows.Data.Json;
+using Windows.Storage;
 using WpBlueBubbles.Models;
 
 namespace WpBlueBubbles.Services
@@ -46,15 +48,30 @@ namespace WpBlueBubbles.Services
             return result;
         }
 
-        public async Task<IReadOnlyList<MessageItem>> GetMessagesAsync(string chatGuid, int limit)
+        public async Task<IReadOnlyList<MessageItem>> GetMessagesAsync(string chatGuid, int limit, int timeframeDays = 0)
         {
-            var route = "chat/" + Uri.EscapeDataString(chatGuid) + "/message?sort=DESC&offset=0&limit=" + limit;
+            var route = "chat/" + Uri.EscapeDataString(chatGuid) + "/message?sort=DESC&offset=0&limit=" + limit + "&with=attachments";
+            if (timeframeDays > 0)
+            {
+                var after = DateTimeOffset.UtcNow.AddDays(-timeframeDays).ToUnixTimeMilliseconds();
+                route += "&after=" + after;
+            }
             var root = await GetRootAsync(route);
             var data = GetDataArray(root);
             var result = new List<MessageItem>();
             foreach (var value in data) if (value.ValueType == JsonValueType.Object) result.Add(MessageItem.FromJson(value.GetObject()));
+            if (timeframeDays > 0)
+            {
+                var cutoff = DateTimeOffset.UtcNow.AddDays(-timeframeDays).ToUnixTimeMilliseconds();
+                result = result.FindAll(message => message.Timestamp >= cutoff);
+            }
             result.Sort((a, b) => a.Timestamp.CompareTo(b.Timestamp));
             return result;
+        }
+
+        public string GetAttachmentDownloadUri(string attachmentGuid)
+        {
+            return string.IsNullOrWhiteSpace(attachmentGuid) ? string.Empty : BuildUrl("attachment/" + Uri.EscapeDataString(attachmentGuid) + "/download");
         }
 
         public async Task<MessageItem> SendTextAsync(string chatGuid, string text)
@@ -68,6 +85,25 @@ namespace WpBlueBubbles.Services
             var root = await PostRootAsync("message/text", body);
             JsonObject data;
             return JsonValueReader.TryObject(root, "data", out data) ? MessageItem.FromJson(data) : null;
+        }
+
+        public async Task SendPhotoAsync(string chatGuid, StorageFile file)
+        {
+            var tempGuid = "temp-" + Guid.NewGuid().ToString();
+            using (var stream = await file.OpenReadAsync())
+            using (var form = new MultipartFormDataContent())
+            using (var image = new StreamContent(stream.AsStreamForRead()))
+            {
+                image.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue(stream.ContentType);
+                form.Add(image, "attachment", file.Name);
+                // Newer BlueBubbles servers can truncate semicolon-delimited chat GUIDs in multipart fields.
+                // Keep the GUID in the query string where it survives intact.
+                var route = "message/attachment?chatGuid=" + Uri.EscapeDataString(chatGuid);
+                form.Add(new StringContent(tempGuid), "tempGuid");
+                form.Add(new StringContent(file.Name), "name");
+                var response = await _http.PostAsync(BuildUrl(route), form);
+                await ReadResponseAsync(response);
+            }
         }
 
         private string BuildUrl(string route)

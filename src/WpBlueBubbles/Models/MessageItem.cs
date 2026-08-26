@@ -1,16 +1,25 @@
 using Windows.Data.Json;
+using System.ComponentModel;
 using Windows.UI.Xaml;
 using Windows.UI.Xaml.Media;
 
 namespace WpBlueBubbles.Models
 {
-    public sealed class MessageItem
+    public sealed class MessageItem : INotifyPropertyChanged
     {
         public string Guid { get; set; }
         public string Text { get; set; }
         public string TimeLabel { get; set; }
         public bool IsFromMe { get; set; }
         public long Timestamp { get; set; }
+        public bool HasAttachments { get; set; }
+        public string AttachmentLabel { get; set; }
+        public string AttachmentGuid { get; set; }
+        public string AttachmentMimeType { get; set; }
+        public string AttachmentUri { get; set; }
+        public bool IsImageAttachment { get; set; }
+        public bool HasNonImageAttachment { get { return HasAttachments && !IsImageAttachment; } }
+        public event PropertyChangedEventHandler PropertyChanged;
         public HorizontalAlignment BubbleAlignment { get { return IsFromMe ? HorizontalAlignment.Right : HorizontalAlignment.Left; } }
         public Brush BubbleBrush { get { return new SolidColorBrush(IsFromMe ? Windows.UI.Color.FromArgb(255, 14, 99, 156) : Windows.UI.Color.FromArgb(255, 39, 52, 60)); } }
 
@@ -18,15 +27,51 @@ namespace WpBlueBubbles.Models
         {
             var timestamp = JsonValueReader.Long(json, "dateCreated");
             var text = JsonValueReader.String(json, "text");
-            if (string.IsNullOrWhiteSpace(text)) text = "Attachment";
+            JsonArray attachments;
+            var hasAttachments = JsonValueReader.TryArray(json, "attachments", out attachments) && attachments.Count > 0;
+            if (string.IsNullOrWhiteSpace(text)) text = hasAttachments ? "Photo or attachment" : "";
+            var attachmentGuid = string.Empty;
+            var mimeType = string.Empty;
+            var uti = string.Empty;
+            var attachmentName = string.Empty;
+            if (hasAttachments && attachments[0].ValueType == JsonValueType.Object)
+            {
+                var attachment = attachments[0].GetObject();
+                attachmentGuid = JsonValueReader.String(attachment, "guid");
+                mimeType = JsonValueReader.String(attachment, "mimeType");
+                uti = JsonValueReader.String(attachment, "uti");
+                attachmentName = JsonValueReader.String(attachment, "transferName");
+            }
             return new MessageItem
             {
                 Guid = JsonValueReader.String(json, "guid"),
                 Text = text,
                 Timestamp = timestamp,
+                HasAttachments = hasAttachments,
+                AttachmentLabel = hasAttachments ? (string.IsNullOrWhiteSpace(attachmentName) ? "Attachment available" : attachmentName) : string.Empty,
+                AttachmentGuid = attachmentGuid,
+                AttachmentMimeType = mimeType,
+                IsImageAttachment = mimeType.StartsWith("image/", System.StringComparison.OrdinalIgnoreCase) || uti.IndexOf("image", System.StringComparison.OrdinalIgnoreCase) >= 0 || uti.IndexOf("jpeg", System.StringComparison.OrdinalIgnoreCase) >= 0 || uti.IndexOf("png", System.StringComparison.OrdinalIgnoreCase) >= 0 || uti.IndexOf("heic", System.StringComparison.OrdinalIgnoreCase) >= 0,
                 TimeLabel = DateLabels.FromMilliseconds(timestamp).ToString("g"),
                 IsFromMe = JsonValueReader.Boolean(json, "isFromMe")
             };
+        }
+
+        public void SetAttachmentUri(string uri)
+        {
+            AttachmentUri = uri;
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(AttachmentUri)));
+        }
+
+        public void MarkAttachmentFailed()
+        {
+            AttachmentUri = string.Empty;
+            IsImageAttachment = false;
+            AttachmentLabel = "Image unavailable";
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(AttachmentUri)));
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsImageAttachment)));
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(HasNonImageAttachment)));
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(AttachmentLabel)));
         }
     }
 }

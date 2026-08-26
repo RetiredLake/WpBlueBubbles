@@ -19,17 +19,17 @@
       <SplitView.Pane>
         <Grid Padding="20,28,16,18">
           <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
-          <StackPanel Orientation="Horizontal" Spacing="16">
+          <StackPanel Orientation="Horizontal">
             <Border Width="52" Height="52" CornerRadius="26" Background="#18000000">
               <FontIcon Glyph="&#xE77B;" FontSize="27" HorizontalAlignment="Center" VerticalAlignment="Center"/>
             </Border>
             <TextBlock Text="BlueBubbles" FontSize="26" VerticalAlignment="Center"/>
           </StackPanel>
           <StackPanel Grid.Row="1" Margin="0,32,0,0">
-            <Button Style="{StaticResource NavigationButtonStyle}" Click="Chats_Click"><StackPanel Orientation="Horizontal" Spacing="22"><FontIcon Glyph="&#xE8F2;"/><TextBlock Text="Chats"/></StackPanel></Button>
-            <Button Style="{StaticResource NavigationButtonStyle}" IsEnabled="False"><StackPanel Orientation="Horizontal" Spacing="22"><FontIcon Glyph="&#xE716;"/><TextBlock Text="Contacts"/></StackPanel></Button>
+            <Button Style="{StaticResource NavigationButtonStyle}" Click="Chats_Click"><StackPanel Orientation="Horizontal"><FontIcon Glyph="&#xE8F2;"/><TextBlock Text="Chats" Margin="22,0,0,0"/></StackPanel></Button>
+            <Button Style="{StaticResource NavigationButtonStyle}" IsEnabled="False"><StackPanel Orientation="Horizontal"><FontIcon Glyph="&#xE716;"/><TextBlock Text="Contacts" Margin="22,0,0,0"/></StackPanel></Button>
           </StackPanel>
-          <Button Grid.Row="3" Style="{StaticResource NavigationButtonStyle}" Click="Settings_Click"><StackPanel Orientation="Horizontal" Spacing="22"><FontIcon Glyph="&#xE713;"/><TextBlock Text="Settings"/></StackPanel></Button>
+          <Button Grid.Row="3" Style="{StaticResource NavigationButtonStyle}" Click="Settings_Click"><StackPanel Orientation="Horizontal"><FontIcon Glyph="&#xE713;"/><TextBlock Text="Settings" Margin="22,0,0,0"/></StackPanel></Button>
         </Grid>
       </SplitView.Pane>
 
@@ -41,7 +41,7 @@
             <Button x:Name="MenuButton" Style="{StaticResource HeaderIconButtonStyle}" Content="&#xE700;" Click="Menu_Click" AutomationProperties.Name="Menu"/>
             <Button x:Name="BackButton" Style="{StaticResource HeaderIconButtonStyle}" Content="&#xE72B;" Click="Back_Click" Visibility="Collapsed" AutomationProperties.Name="Back to chats"/>
             <TextBlock x:Name="PageTitle" Grid.Column="1" Text="Chats" FontSize="25" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
-            <Button Grid.Column="2" Style="{StaticResource HeaderIconButtonStyle}" Content="&#xE713;" Click="Settings_Click" AutomationProperties.Name="Server settings"/>
+            <Button Grid.Column="2" Style="{StaticResource HeaderIconButtonStyle}" Content="&#xE70F;" Click="Compose_Click" AutomationProperties.Name="Compose new message"/>
           </Grid>
 
           <Grid Grid.Row="1">
@@ -62,6 +62,7 @@
                       <StackPanel Grid.Column="1" Margin="12,0,8,0" VerticalAlignment="Center">
                         <TextBlock Text="{Binding Title}" FontSize="18" TextTrimming="CharacterEllipsis"/>
                         <TextBlock Text="{Binding Preview}" Foreground="{StaticResource MutedTextBrush}" FontSize="14" TextTrimming="CharacterEllipsis" Margin="0,3,0,0"/>
+                        <TextBlock Text="{Binding ParticipantSummary}" Foreground="{StaticResource MutedTextBrush}" FontSize="12" TextTrimming="CharacterEllipsis" Visibility="{Binding IsGroupChat, Converter={StaticResource BooleanToVisibilityConverter}}"/>
                       </StackPanel>
                       <TextBlock Grid.Column="2" Text="{Binding TimeLabel}" Foreground="{StaticResource MutedTextBrush}" FontSize="13" Margin="6,4,0,0"/>
                     </Grid>
@@ -75,26 +76,29 @@
             <Grid x:Name="ConversationPane" Grid.Column="2" Background="{StaticResource AppBackgroundBrush}">
               <Grid.RowDefinitions><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
               <Grid x:Name="EmptyConversation">
-                <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="12">
+                <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
                   <FontIcon Glyph="&#xE8F2;" FontSize="42" Foreground="{StaticResource MutedTextBrush}"/>
-                  <TextBlock Text="Choose a conversation" Foreground="{StaticResource MutedTextBrush}" FontSize="20"/>
+                  <TextBlock Text="Choose a conversation" Foreground="{StaticResource MutedTextBrush}" FontSize="20" Margin="0,12,0,0"/>
                 </StackPanel>
               </Grid>
               <ListView x:Name="MessagesList" Visibility="Collapsed" Padding="14,10" SelectionMode="None">
-                <ListView.ItemContainerStyle><Style TargetType="ListViewItem"><Setter Property="HorizontalContentAlignment" Value="Stretch"/><Setter Property="IsHitTestVisible" Value="False"/><Setter Property="Padding" Value="0"/></Style></ListView.ItemContainerStyle>
+                <ListView.ItemContainerStyle><Style TargetType="ListViewItem"><Setter Property="HorizontalContentAlignment" Value="Stretch"/><Setter Property="Padding" Value="0"/></Style></ListView.ItemContainerStyle>
                 <ListView.ItemTemplate>
                   <DataTemplate>
                     <StackPanel HorizontalAlignment="{Binding BubbleAlignment}" MaxWidth="520" Margin="0,4">
-                      <Border Background="{Binding BubbleBrush}" CornerRadius="6" Padding="12,8"><TextBlock Text="{Binding Text}" FontSize="16" TextWrapping="Wrap"/></Border>
+                      <Border Background="{Binding BubbleBrush}" CornerRadius="6" Padding="12,8"><StackPanel><Image Source="{Binding AttachmentUri}" Visibility="{Binding IsImageAttachment, Converter={StaticResource BooleanToVisibilityConverter}}" MaxWidth="300" MaxHeight="260" Stretch="Uniform" ImageFailed="AttachmentImage_Failed"/><TextBlock Text="{Binding Text}" FontSize="16" TextWrapping="Wrap" Holding="Message_Holding" Margin="0,5,0,0"/><TextBlock Text="{Binding AttachmentLabel}" Visibility="{Binding HasNonImageAttachment, Converter={StaticResource BooleanToVisibilityConverter}}" Foreground="{StaticResource MutedTextBrush}" FontSize="12" Margin="0,5,0,0"/></StackPanel></Border>
                       <TextBlock Text="{Binding TimeLabel}" Foreground="{StaticResource MutedTextBrush}" FontSize="11" HorizontalAlignment="Right" Margin="0,3,2,0"/>
                     </StackPanel>
                   </DataTemplate>
                 </ListView.ItemTemplate>
               </ListView>
               <Grid x:Name="Composer" Grid.Row="1" Visibility="Collapsed" Background="#09141B" Padding="12" BorderBrush="#33434C" BorderThickness="0,1,0,0">
-                <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="52"/></Grid.ColumnDefinitions>
-                <TextBox x:Name="MessageBox" PlaceholderText="Message" AcceptsReturn="True" MaxHeight="120" TextWrapping="Wrap" KeyDown="MessageBox_KeyDown"/>
-                <Button x:Name="SendButton" Grid.Column="1" Style="{StaticResource HeaderIconButtonStyle}" Content="&#xE724;" Click="Send_Click" AutomationProperties.Name="Send message"/>
+                <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+                <Grid.ColumnDefinitions><ColumnDefinition Width="52"/><ColumnDefinition Width="*"/><ColumnDefinition Width="52"/></Grid.ColumnDefinitions>
+                <TextBlock x:Name="SharedAttachmentBanner" Grid.ColumnSpan="3" Visibility="Collapsed" Foreground="{StaticResource MutedTextBrush}" TextWrapping="Wrap" Margin="0,0,0,8"/>
+                <Button x:Name="AttachButton" Grid.Row="1" Style="{StaticResource HeaderIconButtonStyle}" Content="&#xE723;" Click="Attach_Click" AutomationProperties.Name="Attach a file"/>
+                <TextBox x:Name="MessageBox" Grid.Row="1" Grid.Column="1" PlaceholderText="Message" AcceptsReturn="True" MaxHeight="120" TextWrapping="Wrap" KeyDown="MessageBox_KeyDown"/>
+                <Button x:Name="SendButton" Grid.Row="1" Grid.Column="2" Style="{StaticResource HeaderIconButtonStyle}" Content="&#xE724;" Click="Send_Click" AutomationProperties.Name="Send message"/>
               </Grid>
             </Grid>
           </Grid>
@@ -106,29 +110,61 @@
 
     <Grid x:Name="SettingsOverlay" Background="#E6071117" Visibility="Collapsed">
       <ScrollViewer>
-        <StackPanel MaxWidth="560" Padding="28,36" HorizontalAlignment="Center" Spacing="14">
+        <StackPanel MaxWidth="560" Padding="28,36" HorizontalAlignment="Center">
           <Button Style="{StaticResource HeaderIconButtonStyle}" Content="&#xE72B;" Click="CloseSettings_Click" HorizontalAlignment="Left" AutomationProperties.Name="Close settings"/>
-          <TextBlock Text="Connect to BlueBubbles" FontSize="32" Margin="0,14,0,4"/>
+          <TextBlock Text="Connect to BlueBubbles" FontSize="28" TextWrapping="Wrap" Margin="0,14,0,4"/>
           <TextBlock Text="Use the server's setup QR code or enter its address and password." Foreground="{StaticResource MutedTextBrush}" TextWrapping="Wrap"/>
-          <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,8,0,0">
+          <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
             <Button Content="Manual setup" Click="ManualSetup_Click"/>
-            <Button Content="Use QR setup code" Click="QrSetup_Click"/>
+            <Button Content="Use QR setup code" Click="QrSetup_Click" Margin="8,0,0,0"/>
           </StackPanel>
-          <StackPanel x:Name="ManualSetupPanel" Spacing="14">
+          <StackPanel x:Name="ManualSetupPanel">
             <TextBox x:Name="ServerAddressBox" Header="Server address" PlaceholderText="http://192.168.1.20:1234" InputScope="Url"/>
-            <PasswordBox x:Name="ServerPasswordBox" Header="Server password" PlaceholderText="Password"/>
-            <StackPanel Orientation="Horizontal" Spacing="10" Margin="0,8,0,0">
+            <PasswordBox x:Name="ServerPasswordBox" Header="Server password" PlaceholderText="Password" Margin="0,14,0,0"/>
+            <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
               <Button x:Name="ConnectButton" Content="Connect" Click="Connect_Click" Style="{StaticResource AccentButtonStyle}"/>
-              <ProgressRing x:Name="ConnectProgress" Width="28" Height="28" IsActive="False"/>
+              <ProgressRing x:Name="ConnectProgress" Width="28" Height="28" IsActive="False" Margin="10,0,0,0"/>
             </StackPanel>
           </StackPanel>
-          <StackPanel x:Name="QrSetupPanel" Visibility="Collapsed" Spacing="14">
+          <StackPanel x:Name="QrSetupPanel" Visibility="Collapsed">
             <TextBox x:Name="QrPayloadBox" Header="BlueBubbles QR setup code" PlaceholderText="Paste the scanned QR code data here" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="120"/>
-            <Button Content="Connect using QR setup code" Click="ConnectQr_Click" Style="{StaticResource AccentButtonStyle}" HorizontalAlignment="Left"/>
+            <Button Content="Connect using QR setup code" Click="ConnectQr_Click" Style="{StaticResource AccentButtonStyle}" HorizontalAlignment="Left" Margin="0,14,0,0"/>
+            <Button Content="Scan setup QR code with camera" Click="ScanQr_Click" HorizontalAlignment="Left" Margin="0,14,0,0"/>
+          </StackPanel>
+          <StackPanel Margin="0,8,0,0">
+            <TextBlock Text="Sync messages" FontSize="20"/>
+            <TextBlock x:Name="SyncDescription" Foreground="{StaticResource MutedTextBrush}" TextWrapping="Wrap" Margin="0,10,0,0"/>
+            <Slider x:Name="MessagesPerChatSlider" Minimum="1" Maximum="50" StepFrequency="1" ValueChanged="MessagesPerChatSlider_ValueChanged" Margin="0,10,0,0"/>
+            <ComboBox x:Name="SyncTimeframeBox" Header="Time range" SelectionChanged="SyncTimeframeBox_SelectionChanged" Margin="0,10,0,0"><ComboBoxItem Tag="0" Content="All time"/><ComboBoxItem Tag="30" Content="Last 30 days"/><ComboBoxItem Tag="365" Content="Last year"/></ComboBox>
+            <ToggleSwitch x:Name="NotificationsToggle" Header="Enable notifications" OffContent="Off" OnContent="On" Toggled="NotificationsToggle_Toggled" Margin="0,10,0,0"/>
+          </StackPanel>
+          <StackPanel Margin="0,26,0,0">
+            <TextBlock Text="Credits" FontSize="16" Foreground="{StaticResource MutedTextBrush}"/>
+            <HyperlinkButton Content="developed by retiredlake.com" NavigateUri="https://retiredlake.com" HorizontalAlignment="Left" Padding="0"/>
           </StackPanel>
           <TextBlock x:Name="ConnectError" Foreground="#FFFF8C82" TextWrapping="Wrap"/>
         </StackPanel>
       </ScrollViewer>
+    </Grid>
+
+    <Grid x:Name="QrScannerOverlay" Background="#F2071117" Visibility="Collapsed">
+      <Grid Padding="24"><Grid.RowDefinitions><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+        <CaptureElement x:Name="QrCameraPreview" Stretch="Uniform"/>
+        <StackPanel Grid.Row="1" HorizontalAlignment="Center" Margin="0,12,0,0"><TextBlock Text="Point the camera at the BlueBubbles setup QR code" TextWrapping="Wrap" FontSize="17" TextAlignment="Center"/><Button Content="Cancel camera scan" Click="CancelQrScan_Click" Margin="0,10,0,0"/></StackPanel>
+      </Grid>
+    </Grid>
+
+    <Grid x:Name="ComposeOverlay" Background="#E6071117" Visibility="Collapsed">
+      <StackPanel MaxWidth="560" Padding="28,36" HorizontalAlignment="Center">
+        <Button Style="{StaticResource HeaderIconButtonStyle}" Content="&#xE72B;" Click="CloseCompose_Click" HorizontalAlignment="Left" AutomationProperties.Name="Close compose"/>
+        <TextBlock Text="New message" FontSize="30" Margin="0,12,0,6"/>
+        <TextBox x:Name="RecipientBox" Header="To" PlaceholderText="Name, phone number, or email" TextChanged="RecipientBox_TextChanged"/>
+        <TextBlock x:Name="ComposeHint" Foreground="{StaticResource MutedTextBrush}" TextWrapping="Wrap" Margin="0,12,0,0" Text="Choose an existing conversation or enter a recipient. New recipient sending requires your confirmation."/>
+        <TextBlock x:Name="SharedComposePreview" Foreground="{StaticResource MutedTextBrush}" TextWrapping="Wrap" Margin="0,12,0,0" Visibility="Collapsed"/>
+        <ListView x:Name="RecipientMatchesList" IsItemClickEnabled="True" ItemClick="RecipientMatchesList_ItemClick" SelectionMode="None" Margin="0,12,0,0">
+          <ListView.ItemTemplate><DataTemplate><TextBlock Text="{Binding Title}" FontSize="18" Padding="8" TextTrimming="CharacterEllipsis"/></DataTemplate></ListView.ItemTemplate>
+        </ListView>
+      </StackPanel>
     </Grid>
 
     <VisualStateManager.VisualStateGroups>
