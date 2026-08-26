@@ -15,6 +15,7 @@ namespace WpBlueBubbles.Models
         public string ParticipantSummary { get; set; }
         public List<string> ParticipantAddresses { get; set; }
         public bool IsGroupChat { get; set; }
+        public bool IsArchived { get; set; }
         public long LastMessageTimestamp { get; set; }
         public string LastMessageGuid { get; set; }
         public bool LastMessageIsFromMe { get; set; }
@@ -68,6 +69,7 @@ namespace WpBlueBubbles.Models
                 TimeLabel = DateLabels.Compact(timestamp),
                 Initials = MakeInitials(title),
                 IsGroupChat = participantNames.Count > 1,
+                IsArchived = JsonValueReader.Boolean(json, "isArchived"),
                 ParticipantSummary = participantNames.Count > 1 ? string.Join(", ", participantNames) : participantNames.Count == 1 ? participantNames[0] : string.Empty,
                 ParticipantAddresses = participantAddresses
             };

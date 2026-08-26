@@ -14,6 +14,7 @@ using Windows.Storage;
 using Windows.Storage.Pickers;
 using Windows.UI.Core;
 using Windows.UI.Popups;
+using Windows.UI.ViewManagement;
 using Windows.UI.Xaml;
 using Windows.UI.Xaml.Controls;
 using Windows.UI.Xaml.Input;
@@ -46,10 +47,13 @@ namespace WpBlueBubbles
         private StorageFile _sharedFile;
         private string _sharedText;
         private bool _loadingNotificationSetting;
+        private bool _showArchived;
+        private readonly InputPane _inputPane;
 
         public MainPage()
         {
             InitializeComponent();
+            _inputPane = InputPane.GetForCurrentView();
             ChatsList.ItemsSource = _chats;
             MessagesList.ItemsSource = _messages;
             RecipientMatchesList.ItemsSource = _recipientMatches;
@@ -60,6 +64,7 @@ namespace WpBlueBubbles
             Unloaded += MainPage_Unloaded;
             SizeChanged += MainPage_SizeChanged;
             SystemNavigationManager.GetForCurrentView().BackRequested += MainPage_BackRequested;
+            _inputPane.Showing += InputPane_Showing;
         }
 
         private async void MainPage_Loaded(object sender, RoutedEventArgs e)
@@ -92,6 +97,7 @@ namespace WpBlueBubbles
             _qrScanner?.Dispose();
             if (_client != null) _client.Dispose();
             SystemNavigationManager.GetForCurrentView().BackRequested -= MainPage_BackRequested;
+            _inputPane.Showing -= InputPane_Showing;
         }
 
         private void MainPage_SizeChanged(object sender, SizeChangedEventArgs e) { UpdateResponsiveLayout(); }
@@ -205,6 +211,7 @@ namespace WpBlueBubbles
         {
             _selectedChat = e.ClickedItem as ChatItem;
             if (_selectedChat == null) return;
+            UpdateHeaderActions(true);
             NotificationStateStore.MarkRead(_selectedChat.Guid);
             await NotificationService.UpdateTileAsync();
             PageTitle.Text = _selectedChat.Title;
@@ -401,6 +408,7 @@ namespace WpBlueBubbles
             var chat = _allChats.FirstOrDefault(item => item.Guid == chatGuid);
             if (chat == null) return;
             _selectedChat = chat;
+            UpdateHeaderActions(true);
             NotificationStateStore.MarkRead(chat.Guid);
             await NotificationService.UpdateTileAsync();
             PageTitle.Text = chat.Title;
@@ -424,6 +432,7 @@ namespace WpBlueBubbles
             var chat = e.ClickedItem as ChatItem;
             if (chat == null) return;
             _selectedChat = chat;
+            UpdateHeaderActions(true);
             NotificationStateStore.MarkRead(chat.Guid);
             await NotificationService.UpdateTileAsync();
             PageTitle.Text = chat.Title;
@@ -568,8 +577,92 @@ namespace WpBlueBubbles
         private void Menu_Click(object sender, RoutedEventArgs e) { NavigationSplitView.IsPaneOpen = !NavigationSplitView.IsPaneOpen; }
         private void Settings_Click(object sender, RoutedEventArgs e) { NavigationSplitView.IsPaneOpen = false; SettingsOverlay.Visibility = Visibility.Visible; }
         private void CloseSettings_Click(object sender, RoutedEventArgs e) { if (_client != null) SettingsOverlay.Visibility = Visibility.Collapsed; }
-        private void Chats_Click(object sender, RoutedEventArgs e) { NavigationSplitView.IsPaneOpen = false; ReturnToChats(); }
+        private void Chats_Click(object sender, RoutedEventArgs e) { ShowChatPage(false); }
+        private void Archived_Click(object sender, RoutedEventArgs e) { ShowChatPage(true); }
         private void Back_Click(object sender, RoutedEventArgs e) { ReturnToChats(); }
+
+        private void ShowChatPage(bool archived)
+        {
+            NavigationSplitView.IsPaneOpen = false;
+            _showArchived = archived;
+            PageTitle.Text = archived ? "Archived" : "Chats";
+            ApplyChatSearch();
+            _selectedChat = null;
+            EmptyConversation.Visibility = Visibility.Visible;
+            MessagesList.Visibility = Visibility.Collapsed;
+            Composer.Visibility = Visibility.Collapsed;
+            UpdateHeaderActions(false);
+            ReturnToChats();
+        }
+
+        private void UpdateHeaderActions(bool conversationOpen)
+        {
+            if (ComposeButton != null) ComposeButton.Visibility = conversationOpen ? Visibility.Collapsed : Visibility.Visible;
+            if (ChatActionsButton != null) ChatActionsButton.Visibility = conversationOpen ? Visibility.Visible : Visibility.Collapsed;
+        }
+
+        private async void ChatActions_Click(object sender, RoutedEventArgs e)
+        {
+            if (_selectedChat == null) return;
+            var archive = new UICommand(_selectedChat.IsArchived ? "Unarchive" : "Archive");
+            var delete = new UICommand("Delete chat");
+            var menu = new PopupMenu();
+            menu.Commands.Add(archive);
+            menu.Commands.Add(delete);
+            var point = ChatActionsButton.TransformToVisual(null).TransformPoint(new Point());
+            var selected = await menu.ShowForSelectionAsync(new Rect(point, ChatActionsButton.RenderSize));
+            if (selected == archive)
+            {
+                await ShowArchiveAvailabilityAsync();
+            }
+            else if (selected == delete)
+            {
+                await DeleteSelectedChatAsync();
+            }
+        }
+
+        private async Task ShowArchiveAvailabilityAsync()
+        {
+            var action = _selectedChat != null && _selectedChat.IsArchived ? "unarchive" : "archive";
+            var dialog = new MessageDialog("The current BlueBubbles REST API reports archive state but does not expose a way for this client to " + action + " a chat. Change the archive state in Messages or an official BlueBubbles client, then refresh here.", "Archive unavailable");
+            dialog.Commands.Add(new UICommand("OK"));
+            await dialog.ShowAsync();
+        }
+
+        private async Task DeleteSelectedChatAsync()
+        {
+            if (_client == null || _selectedChat == null) return;
+            var title = _selectedChat.Title;
+            var dialog = new MessageDialog("Delete \"" + title + "\" permanently from the BlueBubbles server? This cannot be undone.", "Delete conversation?");
+            var confirm = new UICommand("Delete permanently");
+            dialog.Commands.Add(confirm);
+            dialog.Commands.Add(new UICommand("Cancel"));
+            dialog.DefaultCommandIndex = 1;
+            dialog.CancelCommandIndex = 1;
+            var selected = await dialog.ShowAsync();
+            if (selected != confirm) return;
+
+            try
+            {
+                SetSyncing(true, "Deleting conversation...");
+                await _client.DeleteChatAsync(_selectedChat.Guid);
+                ShowChatPage(_showArchived);
+                await RefreshChatsAsync();
+            }
+            catch (Exception ex)
+            {
+                ShowStatus(ex.Message, true);
+            }
+            finally
+            {
+                SetSyncing(false, null);
+            }
+        }
+
+        private void InputPane_Showing(InputPane sender, InputPaneVisibilityEventArgs args)
+        {
+            if (_messages.Count > 0) MessagesList.ScrollIntoView(_messages[_messages.Count - 1]);
+        }
         private void MainPage_BackRequested(object sender, BackRequestedEventArgs e)
         {
             if (SettingsOverlay.Visibility == Visibility.Visible && _client != null) { SettingsOverlay.Visibility = Visibility.Collapsed; e.Handled = true; }
@@ -587,6 +680,7 @@ namespace WpBlueBubbles
                 PageTitle.Text = "Chats";
                 SystemNavigationManager.GetForCurrentView().AppViewBackButtonVisibility = AppViewBackButtonVisibility.Collapsed;
             }
+            UpdateHeaderActions(false);
         }
 
         private void ReturnToConversation()
@@ -607,7 +701,7 @@ namespace WpBlueBubbles
         {
             var query = SearchBox == null ? string.Empty : SearchBox.Text.Trim();
             _chats.Clear();
-            foreach (var chat in _allChats.Where(chat => string.IsNullOrWhiteSpace(query) || chat.Title.IndexOf(query, StringComparison.OrdinalIgnoreCase) >= 0 || chat.Preview.IndexOf(query, StringComparison.OrdinalIgnoreCase) >= 0 || chat.ParticipantSummary.IndexOf(query, StringComparison.OrdinalIgnoreCase) >= 0)) _chats.Add(chat);
+            foreach (var chat in _allChats.Where(chat => chat.IsArchived == _showArchived && (string.IsNullOrWhiteSpace(query) || chat.Title.IndexOf(query, StringComparison.OrdinalIgnoreCase) >= 0 || chat.Preview.IndexOf(query, StringComparison.OrdinalIgnoreCase) >= 0 || chat.ParticipantSummary.IndexOf(query, StringComparison.OrdinalIgnoreCase) >= 0))) _chats.Add(chat);
         }
 
         private async Task LoadContactsAsync()

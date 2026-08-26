@@ -87,6 +87,13 @@ namespace WpBlueBubbles.Services
             return JsonValueReader.TryObject(root, "data", out data) ? MessageItem.FromJson(data) : null;
         }
 
+        public async Task DeleteChatAsync(string chatGuid)
+        {
+            if (string.IsNullOrWhiteSpace(chatGuid)) throw new ArgumentException("Chat is required.");
+            var response = await _http.DeleteAsync(BuildUrl("chat/" + Uri.EscapeDataString(chatGuid)));
+            await ReadResponseAsync(response);
+        }
+
         public async Task SendPhotoAsync(string chatGuid, StorageFile file)
         {
             var tempGuid = "temp-" + Guid.NewGuid().ToString();
