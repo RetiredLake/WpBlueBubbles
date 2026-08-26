@@ -135,7 +135,15 @@ namespace WpBlueBubbles.Models
         public static bool Boolean(JsonObject json, string key)
         {
             IJsonValue value;
-            return json.TryGetValue(key, out value) && value.ValueType == JsonValueType.Boolean && value.GetBoolean();
+            if (!json.TryGetValue(key, out value) || value.ValueType == JsonValueType.Null) return false;
+            if (value.ValueType == JsonValueType.Boolean) return value.GetBoolean();
+            if (value.ValueType == JsonValueType.Number) return Math.Abs(value.GetNumber()) > double.Epsilon;
+            if (value.ValueType == JsonValueType.String)
+            {
+                var text = value.GetString();
+                return string.Equals(text, "true", StringComparison.OrdinalIgnoreCase) || text == "1";
+            }
+            return false;
         }
 
         public static long Long(JsonObject json, string key)

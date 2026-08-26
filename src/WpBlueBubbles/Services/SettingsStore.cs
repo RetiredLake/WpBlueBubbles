@@ -19,6 +19,7 @@ namespace WpBlueBubbles.Services
         private const string CredentialUser = "guid";
         private const string MessagesPerChatKey = "MessagesPerChat";
         private const string SyncTimeframeDaysKey = "SyncTimeframeDays";
+        private const string SyncDefaultsVersionKey = "SyncDefaultsVersion";
 
         public static ServerSettings Load()
         {
@@ -27,8 +28,8 @@ namespace WpBlueBubbles.Services
             {
                 Address = values.ContainsKey(AddressKey) ? values[AddressKey] as string : string.Empty,
                 Password = LoadPassword(),
-                MessagesPerChat = values.ContainsKey(MessagesPerChatKey) ? (int)values[MessagesPerChatKey] : 25,
-                SyncTimeframeDays = values.ContainsKey(SyncTimeframeDaysKey) ? (int)values[SyncTimeframeDaysKey] : 0
+                MessagesPerChat = values.ContainsKey(MessagesPerChatKey) ? (int)values[MessagesPerChatKey] : 10,
+                SyncTimeframeDays = values.ContainsKey(SyncTimeframeDaysKey) ? (int)values[SyncTimeframeDaysKey] : 7
             };
         }
 
@@ -54,6 +55,23 @@ namespace WpBlueBubbles.Services
             var values = ApplicationData.Current.LocalSettings.Values;
             values[MessagesPerChatKey] = messagesPerChat < 1 ? 1 : messagesPerChat;
             values[SyncTimeframeDaysKey] = timeframeDays < 0 ? 0 : timeframeDays;
+        }
+
+        public static void EnsureVersion016Defaults()
+        {
+            var values = ApplicationData.Current.LocalSettings.Values;
+            if (values.ContainsKey(SyncDefaultsVersionKey) && (int)values[SyncDefaultsVersionKey] >= 16) return;
+            values[MessagesPerChatKey] = 10;
+            values[SyncTimeframeDaysKey] = 7;
+            values[SyncDefaultsVersionKey] = 16;
+        }
+
+        public static void Clear()
+        {
+            ApplicationData.Current.LocalSettings.Values.Clear();
+            var vault = new PasswordVault();
+            try { vault.Remove(vault.Retrieve(CredentialResource, CredentialUser)); }
+            catch { }
         }
 
         private static string LoadPassword()

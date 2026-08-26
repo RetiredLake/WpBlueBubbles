@@ -79,8 +79,7 @@ namespace WpBlueBubbles
 
         protected override void OnBackgroundActivated(BackgroundActivatedEventArgs args)
         {
-            var deferral = args.TaskInstance.GetDeferral();
-            RunBackgroundSyncAsync(deferral);
+            args.TaskInstance.GetDeferral().Complete();
         }
 
         protected override void OnShareTargetActivated(ShareTargetActivatedEventArgs args)
@@ -125,12 +124,6 @@ namespace WpBlueBubbles
             var value = PendingRecipient;
             PendingRecipient = null;
             return value;
-        }
-
-        private async void RunBackgroundSyncAsync(BackgroundTaskDeferral deferral)
-        {
-            try { await NotificationService.RunBackgroundSyncAsync(); }
-            finally { deferral.Complete(); }
         }
 
         private void ReadLaunchArguments(string arguments)

@@ -87,6 +87,24 @@ namespace WpBlueBubbles.Services
             return JsonValueReader.TryObject(root, "data", out data) ? MessageItem.FromJson(data) : null;
         }
 
+        public async Task<ChatItem> CreateChatAsync(string address, string message)
+        {
+            if (string.IsNullOrWhiteSpace(address)) throw new ArgumentException("A phone number or email address is required.");
+            if (string.IsNullOrWhiteSpace(message)) throw new ArgumentException("A message is required.");
+
+            var addresses = new JsonArray();
+            addresses.Add(JsonValue.CreateStringValue(address.Trim()));
+            var body = new JsonObject
+            {
+                ["addresses"] = addresses,
+                ["message"] = JsonValue.CreateStringValue(message.Trim()),
+                ["tempGuid"] = JsonValue.CreateStringValue("temp-" + Guid.NewGuid().ToString())
+            };
+            var root = await PostRootAsync("chat/new", body);
+            JsonObject data;
+            return JsonValueReader.TryObject(root, "data", out data) ? ChatItem.FromJson(data) : null;
+        }
+
         public async Task DeleteChatAsync(string chatGuid)
         {
             if (string.IsNullOrWhiteSpace(chatGuid)) throw new ArgumentException("Chat is required.");
