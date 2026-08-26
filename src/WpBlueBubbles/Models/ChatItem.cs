@@ -16,6 +16,8 @@ namespace WpBlueBubbles.Models
         public List<string> ParticipantAddresses { get; set; }
         public bool IsGroupChat { get; set; }
         public long LastMessageTimestamp { get; set; }
+        public string LastMessageGuid { get; set; }
+        public bool LastMessageIsFromMe { get; set; }
 
         public static ChatItem FromJson(JsonObject json)
         {
@@ -61,6 +63,8 @@ namespace WpBlueBubbles.Models
                 Title = title,
                 Preview = preview,
                 LastMessageTimestamp = timestamp,
+                LastMessageGuid = lastMessage == null ? string.Empty : JsonValueReader.String(lastMessage, "guid"),
+                LastMessageIsFromMe = lastMessage != null && JsonValueReader.Boolean(lastMessage, "isFromMe"),
                 TimeLabel = DateLabels.Compact(timestamp),
                 Initials = MakeInitials(title),
                 IsGroupChat = participantNames.Count > 1,

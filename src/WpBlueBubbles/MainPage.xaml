@@ -27,7 +27,7 @@
           </StackPanel>
           <StackPanel Grid.Row="1" Margin="0,32,0,0">
             <Button Style="{StaticResource NavigationButtonStyle}" Click="Chats_Click"><StackPanel Orientation="Horizontal"><FontIcon Glyph="&#xE8F2;"/><TextBlock Text="Chats" Margin="22,0,0,0"/></StackPanel></Button>
-            <Button Style="{StaticResource NavigationButtonStyle}" IsEnabled="False"><StackPanel Orientation="Horizontal"><FontIcon Glyph="&#xE716;"/><TextBlock Text="Contacts" Margin="22,0,0,0"/></StackPanel></Button>
+            <Button Style="{StaticResource NavigationButtonStyle}" Click="Contacts_Click"><StackPanel Orientation="Horizontal"><FontIcon Glyph="&#xE716;"/><TextBlock Text="Contacts" Margin="22,0,0,0"/></StackPanel></Button>
           </StackPanel>
           <Button Grid.Row="3" Style="{StaticResource NavigationButtonStyle}" Click="Settings_Click"><StackPanel Orientation="Horizontal"><FontIcon Glyph="&#xE713;"/><TextBlock Text="Settings" Margin="22,0,0,0"/></StackPanel></Button>
         </Grid>
@@ -136,7 +136,8 @@
             <TextBlock x:Name="SyncDescription" Foreground="{StaticResource MutedTextBrush}" TextWrapping="Wrap" Margin="0,10,0,0"/>
             <Slider x:Name="MessagesPerChatSlider" Minimum="1" Maximum="50" StepFrequency="1" ValueChanged="MessagesPerChatSlider_ValueChanged" Margin="0,10,0,0"/>
             <ComboBox x:Name="SyncTimeframeBox" Header="Time range" SelectionChanged="SyncTimeframeBox_SelectionChanged" Margin="0,10,0,0"><ComboBoxItem Tag="0" Content="All time"/><ComboBoxItem Tag="30" Content="Last 30 days"/><ComboBoxItem Tag="365" Content="Last year"/></ComboBox>
-            <ToggleSwitch x:Name="NotificationsToggle" Header="Enable notifications" OffContent="Off" OnContent="On" Toggled="NotificationsToggle_Toggled" Margin="0,10,0,0"/>
+            <ToggleSwitch x:Name="NotificationsToggle" Header="Notifications and Live Tile" OffContent="Off" OnContent="On" Toggled="NotificationsToggle_Toggled" Margin="0,10,0,0"/>
+            <TextBlock x:Name="NotificationStatusText" Foreground="{StaticResource MutedTextBrush}" TextWrapping="Wrap" Margin="0,6,0,0"/>
           </StackPanel>
           <StackPanel Margin="0,26,0,0">
             <TextBlock Text="Credits" FontSize="16" Foreground="{StaticResource MutedTextBrush}"/>
@@ -159,12 +160,28 @@
         <Button Style="{StaticResource HeaderIconButtonStyle}" Content="&#xE72B;" Click="CloseCompose_Click" HorizontalAlignment="Left" AutomationProperties.Name="Close compose"/>
         <TextBlock Text="New message" FontSize="30" Margin="0,12,0,6"/>
         <TextBox x:Name="RecipientBox" Header="To" PlaceholderText="Name, phone number, or email" TextChanged="RecipientBox_TextChanged"/>
+        <Button Content="Choose contact" Click="ChooseContact_Click" HorizontalAlignment="Left" Margin="0,8,0,0"/>
         <TextBlock x:Name="ComposeHint" Foreground="{StaticResource MutedTextBrush}" TextWrapping="Wrap" Margin="0,12,0,0" Text="Choose an existing conversation or enter a recipient. New recipient sending requires your confirmation."/>
         <TextBlock x:Name="SharedComposePreview" Foreground="{StaticResource MutedTextBrush}" TextWrapping="Wrap" Margin="0,12,0,0" Visibility="Collapsed"/>
         <ListView x:Name="RecipientMatchesList" IsItemClickEnabled="True" ItemClick="RecipientMatchesList_ItemClick" SelectionMode="None" Margin="0,12,0,0">
           <ListView.ItemTemplate><DataTemplate><TextBlock Text="{Binding Title}" FontSize="18" Padding="8" TextTrimming="CharacterEllipsis"/></DataTemplate></ListView.ItemTemplate>
         </ListView>
       </StackPanel>
+    </Grid>
+
+    <Grid x:Name="ContactsOverlay" Background="#E6071117" Visibility="Collapsed">
+      <Grid MaxWidth="560" HorizontalAlignment="Center" Padding="28,36">
+        <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+        <Button Style="{StaticResource HeaderIconButtonStyle}" Content="&#xE72B;" Click="CloseContacts_Click" HorizontalAlignment="Left" AutomationProperties.Name="Close contacts"/>
+        <StackPanel Grid.Row="1">
+          <TextBlock Text="Contacts" FontSize="30" Margin="0,12,0,6"/>
+          <TextBlock Text="Choose a phone number or email address to start composing." Foreground="{StaticResource MutedTextBrush}" TextWrapping="Wrap"/>
+          <TextBox x:Name="ContactsSearchBox" PlaceholderText="Search contacts" TextChanged="ContactsSearchBox_TextChanged" Margin="0,14,0,4"/>
+        </StackPanel>
+        <ListView x:Name="ContactsList" Grid.Row="2" IsItemClickEnabled="True" ItemClick="ContactsList_ItemClick" SelectionMode="None">
+          <ListView.ItemTemplate><DataTemplate><StackPanel Padding="8"><TextBlock Text="{Binding DisplayName}" FontSize="18" TextTrimming="CharacterEllipsis"/><TextBlock Text="{Binding Address}" Foreground="{StaticResource MutedTextBrush}" TextTrimming="CharacterEllipsis"/><TextBlock Text="{Binding Kind}" Foreground="{StaticResource MutedTextBrush}" FontSize="12"/></StackPanel></DataTemplate></ListView.ItemTemplate>
+        </ListView>
+      </Grid>
     </Grid>
 
     <VisualStateManager.VisualStateGroups>

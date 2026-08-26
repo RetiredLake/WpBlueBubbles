@@ -25,10 +25,13 @@ namespace WpBlueBubbles
 {
     public sealed partial class MainPage : Page
     {
+        public bool IsClientReady { get { return _client != null; } }
         private readonly ObservableCollection<ChatItem> _chats = new ObservableCollection<ChatItem>();
         private readonly List<ChatItem> _allChats = new List<ChatItem>();
         private readonly ObservableCollection<ChatItem> _recipientMatches = new ObservableCollection<ChatItem>();
         private readonly ObservableCollection<MessageItem> _messages = new ObservableCollection<MessageItem>();
+        private readonly ObservableCollection<ContactChoice> _contacts = new ObservableCollection<ContactChoice>();
+        private readonly List<ContactChoice> _allContacts = new List<ContactChoice>();
         private readonly DispatcherTimer _pollTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(4) };
         private readonly DispatcherTimer _qrScanTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(450) };
         private BlueBubblesClient _client;
@@ -42,6 +45,7 @@ namespace WpBlueBubbles
         private ShareOperation _shareOperation;
         private StorageFile _sharedFile;
         private string _sharedText;
+        private bool _loadingNotificationSetting;
 
         public MainPage()
         {
@@ -49,6 +53,7 @@ namespace WpBlueBubbles
             ChatsList.ItemsSource = _chats;
             MessagesList.ItemsSource = _messages;
             RecipientMatchesList.ItemsSource = _recipientMatches;
+            ContactsList.ItemsSource = _contacts;
             _pollTimer.Tick += PollTimer_Tick;
             _qrScanTimer.Tick += QrScanTimer_Tick;
             Loaded += MainPage_Loaded;
@@ -68,7 +73,10 @@ namespace WpBlueBubbles
             MessagesPerChatSlider.Value = _messagesPerChat;
             SelectTimeframe(_syncTimeframeDays);
             UpdateSyncDescription();
-            NotificationsToggle.IsOn = ApplicationData.Current.LocalSettings.Values.ContainsKey("NotificationsEnabled") && (bool)ApplicationData.Current.LocalSettings.Values["NotificationsEnabled"];
+            _loadingNotificationSetting = true;
+            NotificationsToggle.IsOn = NotificationService.IsEnabled;
+            _loadingNotificationSetting = false;
+            UpdateNotificationStatus();
             if (!settings.IsComplete)
             {
                 SettingsOverlay.Visibility = Visibility.Visible;
@@ -128,6 +136,7 @@ namespace WpBlueBubbles
                 await RefreshChatsAsync();
                 _pollTimer.Start();
                 if (closeSettings) SettingsOverlay.Visibility = Visibility.Collapsed;
+                OpenPendingActivation();
                 ShowStatus(string.Empty, false);
             }
             catch (Exception ex)
@@ -154,6 +163,7 @@ namespace WpBlueBubbles
             foreach (var chat in _allChats) chat.ApplyContactNames(_contactNames);
             ApplyChatSearch();
             if (selectedGuid != null) _selectedChat = _allChats.FirstOrDefault(c => c.Guid == selectedGuid) ?? _selectedChat;
+            if (NotificationService.IsEnabled) await NotificationService.ObserveChatsAsync(_allChats, false);
         }
 
         private async Task RefreshMessagesAsync(bool forceScroll)
@@ -173,6 +183,8 @@ namespace WpBlueBubbles
             }
             SetSyncing(true, "Syncing message " + total + " of " + Math.Max(total, _messagesPerChat) + "...");
             if (_messages.Count > 0) MessagesList.ScrollIntoView(_messages[_messages.Count - 1]);
+            NotificationStateStore.MarkRead(_selectedChat.Guid);
+            await NotificationService.UpdateTileAsync();
         }
 
         private async void PollTimer_Tick(object sender, object e)
@@ -193,6 +205,8 @@ namespace WpBlueBubbles
         {
             _selectedChat = e.ClickedItem as ChatItem;
             if (_selectedChat == null) return;
+            NotificationStateStore.MarkRead(_selectedChat.Guid);
+            await NotificationService.UpdateTileAsync();
             PageTitle.Text = _selectedChat.Title;
             EmptyConversation.Visibility = Visibility.Collapsed;
             MessagesList.Visibility = Visibility.Visible;
@@ -374,6 +388,30 @@ namespace WpBlueBubbles
             RecipientBox.Focus(FocusState.Programmatic);
         }
 
+        public void OpenComposeForRecipient(string recipient)
+        {
+            if (string.IsNullOrWhiteSpace(recipient)) return;
+            OpenCompose();
+            RecipientBox.Text = recipient;
+        }
+
+        public async void OpenChatFromNotification(string chatGuid)
+        {
+            if (string.IsNullOrWhiteSpace(chatGuid)) return;
+            var chat = _allChats.FirstOrDefault(item => item.Guid == chatGuid);
+            if (chat == null) return;
+            _selectedChat = chat;
+            NotificationStateStore.MarkRead(chat.Guid);
+            await NotificationService.UpdateTileAsync();
+            PageTitle.Text = chat.Title;
+            EmptyConversation.Visibility = Visibility.Collapsed;
+            MessagesList.Visibility = Visibility.Visible;
+            Composer.Visibility = Visibility.Visible;
+            if (ActualWidth < 720) ReturnToConversation();
+            try { await RefreshMessagesAsync(true); }
+            catch (Exception ex) { ShowStatus(ex.Message, true); }
+        }
+
         private void CloseCompose_Click(object sender, RoutedEventArgs e)
         {
             ComposeOverlay.Visibility = Visibility.Collapsed;
@@ -386,6 +424,8 @@ namespace WpBlueBubbles
             var chat = e.ClickedItem as ChatItem;
             if (chat == null) return;
             _selectedChat = chat;
+            NotificationStateStore.MarkRead(chat.Guid);
+            await NotificationService.UpdateTileAsync();
             PageTitle.Text = chat.Title;
             EmptyConversation.Visibility = Visibility.Collapsed;
             MessagesList.Visibility = Visibility.Visible;
@@ -405,6 +445,56 @@ namespace WpBlueBubbles
             ComposeHint.Text = _recipientMatches.Count == 0 && !string.IsNullOrWhiteSpace(query) ? "No existing conversation found. Sending to a new recipient will be added after the recipient flow is confirmed on your server." : "Choose an existing conversation.";
         }
 
+        private async void ChooseContact_Click(object sender, RoutedEventArgs e)
+        {
+            ComposeOverlay.Visibility = Visibility.Collapsed;
+            await OpenContactsAsync();
+        }
+
+        private async void Contacts_Click(object sender, RoutedEventArgs e)
+        {
+            NavigationSplitView.IsPaneOpen = false;
+            await OpenContactsAsync();
+        }
+
+        private async Task OpenContactsAsync()
+        {
+            if (_allContacts.Count == 0) await LoadContactsAsync();
+            if (_allContacts.Count == 0)
+            {
+                ShowStatus("Contacts permission is needed to show your phone contacts.", true);
+                return;
+            }
+            ContactsSearchBox.Text = string.Empty;
+            ApplyContactsSearch();
+            ContactsOverlay.Visibility = Visibility.Visible;
+        }
+
+        private void CloseContacts_Click(object sender, RoutedEventArgs e)
+        {
+            ContactsOverlay.Visibility = Visibility.Collapsed;
+        }
+
+        private void ContactsSearchBox_TextChanged(object sender, TextChangedEventArgs e)
+        {
+            ApplyContactsSearch();
+        }
+
+        private void ApplyContactsSearch()
+        {
+            var query = ContactsSearchBox == null ? string.Empty : ContactsSearchBox.Text.Trim();
+            _contacts.Clear();
+            foreach (var contact in _allContacts.Where(contact => string.IsNullOrWhiteSpace(query) || contact.DisplayName.IndexOf(query, StringComparison.OrdinalIgnoreCase) >= 0 || contact.Address.IndexOf(query, StringComparison.OrdinalIgnoreCase) >= 0).Take(100)) _contacts.Add(contact);
+        }
+
+        private void ContactsList_ItemClick(object sender, ItemClickEventArgs e)
+        {
+            var contact = e.ClickedItem as ContactChoice;
+            if (contact == null) return;
+            ContactsOverlay.Visibility = Visibility.Collapsed;
+            OpenComposeForRecipient(contact.Address);
+        }
+
         private async void MessagesPerChatSlider_ValueChanged(object sender, Windows.UI.Xaml.Controls.Primitives.RangeBaseValueChangedEventArgs e)
         {
             _messagesPerChat = Math.Max(1, (int)Math.Round(e.NewValue));
@@ -422,9 +512,20 @@ namespace WpBlueBubbles
             if (_selectedChat != null) await RefreshMessagesAsync(true);
         }
 
-        private void NotificationsToggle_Toggled(object sender, RoutedEventArgs e)
+        private async void NotificationsToggle_Toggled(object sender, RoutedEventArgs e)
         {
-            ApplicationData.Current.LocalSettings.Values["NotificationsEnabled"] = NotificationsToggle.IsOn;
+            if (_loadingNotificationSetting) return;
+            try
+            {
+                if (NotificationsToggle.IsOn) await NotificationService.EnableAsync();
+                else await NotificationService.DisableAsync();
+            }
+            catch (Exception ex)
+            {
+                NotificationsToggle.IsOn = false;
+                ShowStatus("Notifications could not be changed: " + ex.Message, true);
+            }
+            UpdateNotificationStatus();
         }
 
         private void SelectTimeframe(int days)
@@ -511,8 +612,39 @@ namespace WpBlueBubbles
 
         private async Task LoadContactsAsync()
         {
-            try { _contactNames = await new ContactsService().LoadNamesAsync(); }
-            catch { _contactNames = new Dictionary<string, string>(); }
+            try
+            {
+                var service = new ContactsService();
+                var contacts = await service.LoadContactsAsync();
+                _allContacts.Clear();
+                _allContacts.AddRange(contacts);
+                ApplyContactsSearch();
+                _contactNames = await service.LoadNamesAsync();
+            }
+            catch
+            {
+                _allContacts.Clear();
+                _contacts.Clear();
+                _contactNames = new Dictionary<string, string>();
+            }
+        }
+
+        private void OpenPendingActivation()
+        {
+            var app = Application.Current as App;
+            var chatGuid = app?.TakePendingChatGuid();
+            if (!string.IsNullOrWhiteSpace(chatGuid))
+            {
+                var chat = _allChats.FirstOrDefault(item => item.Guid == chatGuid);
+                if (chat != null) OpenChatFromNotification(chatGuid);
+            }
+            var recipient = app?.TakePendingRecipient();
+            if (!string.IsNullOrWhiteSpace(recipient)) OpenComposeForRecipient(recipient);
+        }
+
+        private void UpdateNotificationStatus()
+        {
+            if (NotificationStatusText != null) NotificationStatusText.Text = NotificationService.Status;
         }
 
         public async void PrepareSharedContent(ShareOperation operation)

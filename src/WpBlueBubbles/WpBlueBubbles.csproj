@@ -45,6 +45,8 @@
     <Compile Include="Models\MessageItem.cs" />
     <Compile Include="Services\BlueBubblesClient.cs" />
     <Compile Include="Services\ContactsService.cs" />
+    <Compile Include="Services\NotificationService.cs" />
+    <Compile Include="Services\NotificationStateStore.cs" />
     <Compile Include="Services\QrSetupPayload.cs" />
     <Compile Include="Services\QrCameraScanner.cs" />
     <Compile Include="Services\SettingsStore.cs" />

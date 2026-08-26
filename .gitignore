@@ -2,6 +2,7 @@
 [Bb]in/
 [Oo]bj/
 src/WpBlueBubbles/AppPackages/
+src/WpBlueBubbles/BundleArtifacts/
 
 # Local developer and user state
 *.user
