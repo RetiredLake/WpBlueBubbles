@@ -6,6 +6,8 @@ using System.Text;
 using System.Threading.Tasks;
 using Windows.Data.Json;
 using Windows.Storage;
+using Windows.Networking.Sockets;
+using Windows.Storage.Streams;
 using WpBlueBubbles.Models;
 
 namespace WpBlueBubbles.Services
@@ -14,6 +16,7 @@ namespace WpBlueBubbles.Services
     {
         private readonly HttpClient _http = new HttpClient();
         private readonly string _apiRoot;
+        private readonly string _serverRoot;
         private readonly string _password;
 
         public BlueBubblesClient(string address, string password)
@@ -22,7 +25,8 @@ namespace WpBlueBubbles.Services
             var root = address.Trim().TrimEnd('/');
             if (!root.StartsWith("http://", StringComparison.OrdinalIgnoreCase) && !root.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
                 root = "http://" + root;
-            _apiRoot = root.EndsWith("/api/v1", StringComparison.OrdinalIgnoreCase) ? root : root + "/api/v1";
+            _serverRoot = root.EndsWith("/api/v1", StringComparison.OrdinalIgnoreCase) ? root.Substring(0, root.Length - 7) : root;
+            _apiRoot = _serverRoot + "/api/v1";
             _password = password == null ? string.Empty : password.Trim();
             _http.Timeout = TimeSpan.FromSeconds(20);
         }
@@ -30,6 +34,18 @@ namespace WpBlueBubbles.Services
         public async Task TestConnectionAsync()
         {
             await GetRootAsync("ping");
+        }
+
+        public async Task<ServerCapabilities> GetServerCapabilitiesAsync()
+        {
+            var root = await GetRootAsync("server/info");
+            JsonObject data;
+            var source = JsonValueReader.TryObject(root, "data", out data) ? data : root;
+            return new ServerCapabilities
+            {
+                PrivateApiEnabled = JsonValueReader.Boolean(source, "private_api"),
+                HelperConnected = JsonValueReader.Boolean(source, "helper_connected")
+            };
         }
 
         public async Task<string> GetRegisteredPhoneNumberAsync()
@@ -108,19 +124,120 @@ namespace WpBlueBubbles.Services
             return JsonValueReader.TryObject(root, "data", out data) ? MessageItem.FromJson(data) : null;
         }
 
-        public async Task<ChatItem> CreateChatAsync(string address, string message)
+        public async Task<bool> GetIMessageAvailabilityAsync(string address)
+        {
+            if (string.IsNullOrWhiteSpace(address)) throw new ArgumentException("An address is required.");
+            var root = await GetRootAsync("handle/availability/imessage?address=" + Uri.EscapeDataString(address.Trim()));
+            JsonObject data;
+            return JsonValueReader.TryObject(root, "data", out data) && JsonValueReader.Boolean(data, "available");
+        }
+
+        public async Task MarkChatReadAsync(string chatGuid)
+        {
+            if (string.IsNullOrWhiteSpace(chatGuid)) throw new ArgumentException("Chat is required.");
+            await PostRootAsync("chat/" + Uri.EscapeDataString(chatGuid) + "/read", new JsonObject());
+        }
+
+        public async Task StartTypingAsync(string chatGuid)
+        {
+            if (string.IsNullOrWhiteSpace(chatGuid)) throw new ArgumentException("Chat is required.");
+            await PostRootAsync("chat/" + Uri.EscapeDataString(chatGuid) + "/typing", new JsonObject());
+        }
+
+        public async Task StopTypingAsync(string chatGuid)
+        {
+            if (string.IsNullOrWhiteSpace(chatGuid)) return;
+            using (var socket = new MessageWebSocket())
+            {
+                socket.Control.MessageType = SocketMessageType.Utf8;
+                var completed = new TaskCompletionSource<bool>();
+                socket.MessageReceived += async (sender, args) =>
+                {
+                    try
+                    {
+                        string message;
+                        using (var reader = args.GetDataReader())
+                        {
+                            reader.UnicodeEncoding = Windows.Storage.Streams.UnicodeEncoding.Utf8;
+                            message = reader.ReadString(reader.UnconsumedBufferLength);
+                        }
+                        if (message.StartsWith("0", StringComparison.Ordinal))
+                        {
+                            await SendSocketTextAsync(sender, "40");
+                        }
+                        else if (message.StartsWith("40", StringComparison.Ordinal))
+                        {
+                            var payload = new JsonArray
+                            {
+                                JsonValue.CreateStringValue("stopped-typing"),
+                                new JsonObject { ["chatGuid"] = JsonValue.CreateStringValue(chatGuid) }
+                            };
+                            await SendSocketTextAsync(sender, "42" + payload.Stringify());
+                        }
+                        else if (message.StartsWith("2", StringComparison.Ordinal))
+                        {
+                            await SendSocketTextAsync(sender, "3" + message.Substring(1));
+                        }
+                        else if (message.IndexOf("stopped-typing-sent", StringComparison.OrdinalIgnoreCase) >= 0)
+                        {
+                            completed.TrySetResult(true);
+                        }
+                        else if (message.IndexOf("stopped-typing-error", StringComparison.OrdinalIgnoreCase) >= 0)
+                        {
+                            completed.TrySetException(new InvalidOperationException("BlueBubbles could not stop the typing indicator."));
+                        }
+                    }
+                    catch (Exception ex) { completed.TrySetException(ex); }
+                };
+                socket.Closed += (sender, args) => completed.TrySetException(new InvalidOperationException("The BlueBubbles typing connection closed unexpectedly."));
+                var socketRoot = _serverRoot.StartsWith("https://", StringComparison.OrdinalIgnoreCase)
+                    ? "wss://" + _serverRoot.Substring(8)
+                    : _serverRoot.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ? "ws://" + _serverRoot.Substring(7) : _serverRoot;
+                await socket.ConnectAsync(new Uri(socketRoot + "/socket.io/?EIO=4&transport=websocket&guid=" + Uri.EscapeDataString(_password)));
+                var timeout = Task.Delay(TimeSpan.FromSeconds(8));
+                if (await Task.WhenAny(completed.Task, timeout) != completed.Task) throw new TimeoutException("BlueBubbles did not confirm that typing stopped.");
+                await completed.Task;
+                socket.Close(1000, "Typing stopped");
+            }
+        }
+
+        private static async Task SendSocketTextAsync(MessageWebSocket socket, string text)
+        {
+            using (var writer = new DataWriter(socket.OutputStream))
+            {
+                writer.UnicodeEncoding = Windows.Storage.Streams.UnicodeEncoding.Utf8;
+                writer.WriteString(text);
+                await writer.StoreAsync();
+                await writer.FlushAsync();
+                writer.DetachStream();
+            }
+        }
+
+        public Task<ChatItem> CreateChatAsync(string address, string message)
         {
             if (string.IsNullOrWhiteSpace(address)) throw new ArgumentException("A phone number or email address is required.");
+            return CreateChatAsync(new[] { address }, message, null);
+        }
+
+        public async Task<ChatItem> CreateChatAsync(IReadOnlyList<string> recipients, string message, string service)
+        {
+            if (recipients == null || recipients.Count == 0) throw new ArgumentException("At least one recipient is required.");
             if (string.IsNullOrWhiteSpace(message)) throw new ArgumentException("A message is required.");
 
             var addresses = new JsonArray();
-            addresses.Add(JsonValue.CreateStringValue(address.Trim()));
+            foreach (var recipient in recipients)
+            {
+                if (!string.IsNullOrWhiteSpace(recipient)) addresses.Add(JsonValue.CreateStringValue(recipient.Trim()));
+            }
+            if (addresses.Count == 0) throw new ArgumentException("At least one recipient is required.");
             var body = new JsonObject
             {
                 ["addresses"] = addresses,
                 ["message"] = JsonValue.CreateStringValue(message.Trim()),
                 ["tempGuid"] = JsonValue.CreateStringValue("temp-" + Guid.NewGuid().ToString())
             };
+            if (addresses.Count > 1) body["method"] = JsonValue.CreateStringValue("private-api");
+            if (!string.IsNullOrWhiteSpace(service)) body["service"] = JsonValue.CreateStringValue(service);
             var root = await PostRootAsync("chat/new", body);
             JsonObject data;
             if (!JsonValueReader.TryObject(root, "data", out data)) return null;
@@ -129,6 +246,24 @@ namespace WpBlueBubbles.Services
             JsonArray chats;
             if (JsonValueReader.TryArray(data, "chats", out chats) && chats.Count > 0 && chats[0].ValueType == JsonValueType.Object) return ChatItem.FromJson(chats[0].GetObject());
             return ChatItem.FromJson(data);
+        }
+
+        public string GetGroupIconUri(string chatGuid)
+        {
+            return string.IsNullOrWhiteSpace(chatGuid) ? string.Empty : BuildUrl("chat/" + Uri.EscapeDataString(chatGuid) + "/icon");
+        }
+
+        public async Task RenameGroupChatAsync(string chatGuid, string displayName)
+        {
+            if (string.IsNullOrWhiteSpace(chatGuid)) throw new ArgumentException("Chat is required.");
+            if (string.IsNullOrWhiteSpace(displayName)) throw new ArgumentException("A group name is required.");
+            await PutRootAsync("chat/" + Uri.EscapeDataString(chatGuid), new JsonObject { ["displayName"] = JsonValue.CreateStringValue(displayName.Trim()) });
+        }
+
+        public async Task LeaveGroupChatAsync(string chatGuid)
+        {
+            if (string.IsNullOrWhiteSpace(chatGuid)) throw new ArgumentException("Chat is required.");
+            await PostRootAsync("chat/" + Uri.EscapeDataString(chatGuid) + "/leave", new JsonObject());
         }
 
         public async Task DeleteChatAsync(string chatGuid)
@@ -177,6 +312,13 @@ namespace WpBlueBubbles.Services
             return await ReadResponseAsync(response);
         }
 
+        private async Task<JsonObject> PutRootAsync(string route, JsonObject body)
+        {
+            var content = new StringContent(body.Stringify(), Encoding.UTF8, "application/json");
+            var response = await _http.PutAsync(BuildUrl(route), content);
+            return await ReadResponseAsync(response);
+        }
+
         private static async Task<JsonObject> ReadResponseAsync(HttpResponseMessage response)
         {
             var text = await response.Content.ReadAsStringAsync();
@@ -198,5 +340,12 @@ namespace WpBlueBubbles.Services
         }
 
         public void Dispose() { _http.Dispose(); }
+    }
+
+    public sealed class ServerCapabilities
+    {
+        public bool PrivateApiEnabled { get; set; }
+        public bool HelperConnected { get; set; }
+        public bool CanUsePrivateApi { get { return PrivateApiEnabled && HelperConnected; } }
     }
 }

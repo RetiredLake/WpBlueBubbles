@@ -1,13 +1,16 @@
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.Linq;
 using Windows.Data.Json;
 using Windows.UI.Xaml.Media;
 
 namespace WpBlueBubbles.Models
 {
-    public sealed class ChatItem
+    public sealed class ChatItem : INotifyPropertyChanged
     {
+        private bool _isUnread;
+        private ImageSource _avatarSource;
         public string Guid { get; set; }
         public string Title { get; set; }
         public string Preview { get; set; }
@@ -20,15 +23,51 @@ namespace WpBlueBubbles.Models
         public long LastMessageTimestamp { get; set; }
         public string LastMessageGuid { get; set; }
         public bool LastMessageIsFromMe { get; set; }
-        public ImageSource AvatarSource { get; set; }
+        public bool IsUnread
+        {
+            get { return _isUnread; }
+            set
+            {
+                if (_isUnread == value) return;
+                _isUnread = value;
+                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsUnread)));
+                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsRead)));
+                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(TitleWeight)));
+            }
+        }
+        public bool IsRead { get { return !IsUnread; } }
+        public string Service { get; set; }
+        public bool UsesSmsColor { get { return string.Equals(Service, "SMS", StringComparison.OrdinalIgnoreCase); } }
+        public Brush ServiceBrush { get { return new SolidColorBrush(UsesSmsColor ? Windows.UI.Color.FromArgb(255, 46, 125, 50) : Windows.UI.Color.FromArgb(255, 14, 99, 156)); } }
+        public ImageSource AvatarSource
+        {
+            get { return _avatarSource; }
+            set
+            {
+                if (_avatarSource == value) return;
+                _avatarSource = value;
+                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(AvatarSource)));
+                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(HasAvatar)));
+                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(ShowInitials)));
+            }
+        }
         public bool HasAvatar { get { return AvatarSource != null; } }
         public bool ShowInitials { get { return AvatarSource == null; } }
+        public Windows.UI.Text.FontWeight TitleWeight { get { return IsUnread ? Windows.UI.Text.FontWeights.SemiBold : Windows.UI.Text.FontWeights.Normal; } }
+        public event PropertyChangedEventHandler PropertyChanged;
 
         public static ChatItem FromJson(JsonObject json)
         {
             var guid = JsonValueReader.String(json, "guid");
             var displayName = JsonValueReader.String(json, "displayName");
             var identifier = JsonValueReader.String(json, "chatIdentifier");
+            var service = JsonValueReader.String(json, "serviceName");
+            if (string.IsNullOrWhiteSpace(service))
+            {
+                if (guid.StartsWith("SMS;", StringComparison.OrdinalIgnoreCase)) service = "SMS";
+                else if (guid.StartsWith("RCS;", StringComparison.OrdinalIgnoreCase)) service = "RCS";
+                else service = "iMessage";
+            }
             var participantNames = new List<string>();
             var participantAddresses = new List<string>();
 
@@ -70,6 +109,8 @@ namespace WpBlueBubbles.Models
                 LastMessageTimestamp = timestamp,
                 LastMessageGuid = lastMessage == null ? string.Empty : JsonValueReader.String(lastMessage, "guid"),
                 LastMessageIsFromMe = lastMessage != null && JsonValueReader.Boolean(lastMessage, "isFromMe"),
+                IsUnread = lastMessage != null && !JsonValueReader.Boolean(lastMessage, "isFromMe") && !JsonValueReader.Boolean(lastMessage, "isRead"),
+                Service = service,
                 TimeLabel = DateLabels.Compact(timestamp),
                 Initials = MakeInitials(title),
                 IsGroupChat = participantNames.Count > 1,

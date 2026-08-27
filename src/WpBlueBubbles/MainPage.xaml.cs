@@ -24,6 +24,7 @@ using Windows.UI.Xaml;
 using Windows.UI.Xaml.Controls;
 using Windows.UI.Xaml.Input;
 using Windows.UI.Xaml.Media;
+using Windows.UI.Xaml.Media.Imaging;
 using Windows.UI.Xaml.Documents;
 using WpBlueBubbles.Models;
 using WpBlueBubbles.Services;
@@ -42,6 +43,8 @@ namespace WpBlueBubbles
         private readonly DispatcherTimer _pollTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(15) };
         private readonly DispatcherTimer _qrScanTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(450) };
         private readonly DispatcherTimer _statusTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(5) };
+        private readonly DispatcherTimer _typingStopTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(4) };
+        private readonly DispatcherTimer _availabilityTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(650) };
         private BlueBubblesClient _client;
         private QrCameraScanner _qrScanner;
         private ChatItem _selectedChat;
@@ -57,12 +60,17 @@ namespace WpBlueBubbles
         private bool _showArchived;
         private ChatItem _composeSelectedChat;
         private bool _updatingRecipient;
+        private bool _contactsForCompose;
         private bool _statusIsError;
         private readonly InputPane _inputPane;
         private bool _settingsLoaded;
         private string _chatStateSignature;
         private int _messageLoadGeneration;
         private DateTimeOffset _pinMessagesToBottomUntil;
+        private ServerCapabilities _serverCapabilities = new ServerCapabilities();
+        private string _typingChatGuid;
+        private int _availabilityGeneration;
+        private string _composeService;
         private static readonly bool UseLegacyInAppSyncStatus = false;
         private static readonly bool UsePhoneSyncStatus = false;
 
@@ -77,6 +85,8 @@ namespace WpBlueBubbles
             _pollTimer.Tick += PollTimer_Tick;
             _qrScanTimer.Tick += QrScanTimer_Tick;
             _statusTimer.Tick += StatusTimer_Tick;
+            _typingStopTimer.Tick += TypingStopTimer_Tick;
+            _availabilityTimer.Tick += AvailabilityTimer_Tick;
             Loaded += MainPage_Loaded;
             Unloaded += MainPage_Unloaded;
             SizeChanged += MainPage_SizeChanged;
@@ -114,6 +124,9 @@ namespace WpBlueBubbles
             _pollTimer.Stop();
             _qrScanTimer.Stop();
             _statusTimer.Stop();
+            _typingStopTimer.Stop();
+            _availabilityTimer.Stop();
+            StopTypingWithoutWaiting();
             _qrScanner?.Dispose();
             if (_client != null) _client.Dispose();
             SystemNavigationManager.GetForCurrentView().BackRequested -= MainPage_BackRequested;
@@ -177,6 +190,8 @@ namespace WpBlueBubbles
                 _client = new BlueBubblesClient(address, password);
                 _chatStateSignature = null;
                 await _client.TestConnectionAsync();
+                try { _serverCapabilities = await _client.GetServerCapabilitiesAsync(); }
+                catch { _serverCapabilities = new ServerCapabilities(); }
                 try { NavigationIdentityText.Text = await _client.GetRegisteredPhoneNumberAsync(); }
                 catch { NavigationIdentityText.Text = "BlueBubbles"; }
                 SettingsStore.Save(address, password);
@@ -211,7 +226,16 @@ namespace WpBlueBubbles
         {
             if (_client == null) return false;
             var chats = await _client.GetChatsAsync();
-            foreach (var chat in chats) chat.ApplyContactData(_contactNames, _contactImages);
+            foreach (var chat in chats)
+            {
+                chat.ApplyContactData(_contactNames, _contactImages);
+                if (chat.IsGroupChat)
+                {
+                    var iconUri = _client.GetGroupIconUri(chat.Guid);
+                    if (!string.IsNullOrWhiteSpace(iconUri)) chat.AvatarSource = new BitmapImage(new Uri(iconUri));
+                }
+            }
+            NotificationStateStore.ReconcileReadState(chats);
             var signature = BuildChatStateSignature(chats);
             if (signature == _chatStateSignature) return false;
             var selectedGuid = _selectedChat == null ? null : _selectedChat.Guid;
@@ -232,7 +256,7 @@ namespace WpBlueBubbles
 
         private static string BuildChatStateSignature(IEnumerable<ChatItem> chats)
         {
-            return string.Join("|", chats.OrderBy(chat => chat.Guid).Select(chat => chat.Guid + ":" + chat.LastMessageGuid + ":" + chat.LastMessageTimestamp + ":" + chat.IsArchived + ":" + chat.Title));
+            return string.Join("|", chats.OrderBy(chat => chat.Guid).Select(chat => chat.Guid + ":" + chat.LastMessageGuid + ":" + chat.LastMessageTimestamp + ":" + chat.IsArchived + ":" + chat.IsUnread + ":" + chat.Service + ":" + chat.Title));
         }
 
         private void ResetMessageItems()
@@ -263,6 +287,7 @@ namespace WpBlueBubbles
             for (var i = 0; i < total; i++)
             {
                 var message = received[i];
+                message.UsesSmsColor = selectedChat.UsesSmsColor;
                 if (message.IsImageAttachment || message.IsVideoAttachment) message.SetAttachmentUri(client.GetAttachmentDownloadUri(message.AttachmentGuid));
                 _messages.Add(message);
                 SetSyncing(true, "Syncing messages: " + (i + 1) + " of " + total);
@@ -297,6 +322,7 @@ namespace WpBlueBubbles
 
         private async void ChatsList_ItemClick(object sender, ItemClickEventArgs e)
         {
+            StopTypingWithoutWaiting();
             _messageLoadGeneration++;
             ResetMessageItems();
             _selectedChat = e.ClickedItem as ChatItem;
@@ -311,7 +337,7 @@ namespace WpBlueBubbles
                 ReturnToConversation();
             }
             ShowStatus("Loading messages...", false);
-            try { SetSyncing(true, "Syncing messages..."); await RefreshMessagesAsync(true); ShowStatus(string.Empty, false); }
+            try { SetSyncing(true, "Syncing messages..."); await RefreshMessagesAsync(true); await MarkSelectedChatReadAsync(); ShowStatus(string.Empty, false); }
             catch (Exception ex) { ShowStatus(ex.Message, true); }
             finally { SetSyncing(false, null); }
         }
@@ -324,6 +350,7 @@ namespace WpBlueBubbles
             MessageBox.IsEnabled = false;
             try
             {
+                StopTypingWithoutWaiting();
                 if (_sharedFile != null) await _client.SendAttachmentAsync(_selectedChat.Guid, _sharedFile);
                 if (text.Length > 0) await _client.SendTextAsync(_selectedChat.Guid, text);
                 MessageBox.Text = string.Empty;
@@ -342,6 +369,74 @@ namespace WpBlueBubbles
                 e.Handled = true;
                 await SendCurrentMessageAsync();
             }
+        }
+
+        private async void MessageBox_TextChanged(object sender, TextChangedEventArgs e)
+        {
+            await UpdateTypingAsync(_selectedChat, MessageBox.Text);
+        }
+
+        private async void ComposeMessageBox_TextChanged(object sender, TextChangedEventArgs e)
+        {
+            await UpdateTypingAsync(_composeSelectedChat, ComposeMessageBox.Text);
+        }
+
+        private async Task UpdateTypingAsync(ChatItem chat, string text)
+        {
+            if (!_serverCapabilities.CanUsePrivateApi || _client == null || chat == null || string.IsNullOrWhiteSpace(chat.Guid)) return;
+            if (string.IsNullOrWhiteSpace(text))
+            {
+                await StopTypingAsync();
+                return;
+            }
+
+            _typingStopTimer.Stop();
+            if (!string.Equals(_typingChatGuid, chat.Guid, StringComparison.OrdinalIgnoreCase))
+            {
+                await StopTypingAsync();
+                _typingChatGuid = chat.Guid;
+                try
+                {
+                    await _client.StartTypingAsync(chat.Guid);
+                }
+                catch (Exception ex)
+                {
+                    if (string.Equals(_typingChatGuid, chat.Guid, StringComparison.OrdinalIgnoreCase)) _typingChatGuid = null;
+                    ShowStatus(ex.Message, true);
+                }
+            }
+            _typingStopTimer.Start();
+        }
+
+        private async void TypingStopTimer_Tick(object sender, object e)
+        {
+            await StopTypingAsync();
+        }
+
+        private async Task StopTypingAsync()
+        {
+            _typingStopTimer.Stop();
+            var guid = _typingChatGuid;
+            _typingChatGuid = null;
+            if (!_serverCapabilities.CanUsePrivateApi || _client == null || string.IsNullOrWhiteSpace(guid)) return;
+            try { await _client.StopTypingAsync(guid); }
+            catch (Exception ex) { ShowStatus(ex.Message, true); }
+        }
+
+        private async void StopTypingWithoutWaiting()
+        {
+            await StopTypingAsync();
+        }
+
+        private async Task MarkSelectedChatReadAsync()
+        {
+            var chat = _selectedChat;
+            if (chat == null) return;
+            chat.IsUnread = false;
+            NotificationStateStore.MarkRead(chat.Guid);
+            if (!_serverCapabilities.CanUsePrivateApi || _client == null) return;
+            try { await _client.MarkChatReadAsync(chat.Guid); }
+            catch (Exception ex) { ShowStatus(ex.Message, true); }
         }
 
         private async void Connect_Click(object sender, RoutedEventArgs e)
@@ -518,9 +613,12 @@ namespace WpBlueBubbles
 
         private void OpenCompose()
         {
+            StopTypingWithoutWaiting();
             RecipientBox.Text = string.Empty;
             ComposeMessageBox.Text = string.Empty;
             _composeSelectedChat = null;
+            _composeService = null;
+            ComposeServiceIndicator.Text = string.Empty;
             _recipientMatches.Clear();
             foreach (var chat in _allChats.Take(12)) _recipientMatches.Add(chat);
             ComposeOverlay.Visibility = Visibility.Visible;
@@ -550,12 +648,13 @@ namespace WpBlueBubbles
             MessagesList.Visibility = Visibility.Visible;
             Composer.Visibility = Visibility.Visible;
             if (UseSinglePaneLayout) ReturnToConversation();
-            try { await RefreshMessagesAsync(true); }
+            try { await RefreshMessagesAsync(true); await MarkSelectedChatReadAsync(); }
             catch (Exception ex) { ShowStatus(ex.Message, true); }
         }
 
         private void CloseCompose_Click(object sender, RoutedEventArgs e)
         {
+            StopTypingWithoutWaiting();
             ComposeOverlay.Visibility = Visibility.Collapsed;
             if (_shareOperation != null) CompleteSharedContent();
         }
@@ -568,6 +667,7 @@ namespace WpBlueBubbles
             RecipientBox.Text = chat.Title;
             _updatingRecipient = false;
             _composeSelectedChat = chat;
+            SetComposeService(chat.Service);
             ComposeHint.Text = "Selected conversation: " + chat.Title;
             ComposeMessageBox.Focus(FocusState.Programmatic);
         }
@@ -578,7 +678,63 @@ namespace WpBlueBubbles
             if (!_updatingRecipient) _composeSelectedChat = null;
             _recipientMatches.Clear();
             foreach (var chat in _allChats.Where(chat => string.IsNullOrWhiteSpace(query) || chat.Title.IndexOf(query, StringComparison.OrdinalIgnoreCase) >= 0 || chat.ParticipantSummary.IndexOf(query, StringComparison.OrdinalIgnoreCase) >= 0 || (chat.ParticipantAddresses != null && chat.ParticipantAddresses.Any(address => address.IndexOf(query, StringComparison.OrdinalIgnoreCase) >= 0))).Take(20)) _recipientMatches.Add(chat);
-            ComposeHint.Text = string.IsNullOrWhiteSpace(query) ? "Enter a phone number or email address, then write a message." : "Select an existing conversation or send to the address you entered.";
+            ComposeHint.Text = string.IsNullOrWhiteSpace(query) ? "Enter one or more phone numbers or email addresses, then write a message." : "Select an existing conversation or send to the addresses entered.";
+            _availabilityTimer.Stop();
+            _availabilityGeneration++;
+            if (_composeSelectedChat != null) SetComposeService(_composeSelectedChat.Service);
+            else if (ParseRecipients(query).Count > 0)
+            {
+                ComposeServiceIndicator.Text = _serverCapabilities.CanUsePrivateApi ? "Checking message availability..." : "Service will be selected by BlueBubbles";
+                if (_serverCapabilities.CanUsePrivateApi) _availabilityTimer.Start();
+            }
+            else SetComposeService(null);
+        }
+
+        private async void AvailabilityTimer_Tick(object sender, object e)
+        {
+            _availabilityTimer.Stop();
+            if (_client == null || !_serverCapabilities.CanUsePrivateApi || _composeSelectedChat != null) return;
+            var recipients = ParseRecipients(RecipientBox.Text);
+            if (recipients.Count == 0) return;
+            var generation = ++_availabilityGeneration;
+            try
+            {
+                var allIMessage = true;
+                foreach (var recipient in recipients)
+                {
+                    if (!await _client.GetIMessageAvailabilityAsync(recipient)) allIMessage = false;
+                    if (generation != _availabilityGeneration) return;
+                }
+                SetComposeService(allIMessage ? "iMessage" : "SMS");
+            }
+            catch
+            {
+                if (generation == _availabilityGeneration)
+                {
+                    _composeService = null;
+                    ComposeServiceIndicator.Text = "Message availability unavailable";
+                    ComposeServiceIndicator.Foreground = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 173, 184, 191));
+                }
+            }
+        }
+
+        private void SetComposeService(string service)
+        {
+            _composeService = service;
+            if (string.IsNullOrWhiteSpace(service))
+            {
+                ComposeServiceIndicator.Text = string.Empty;
+                return;
+            }
+            var sms = string.Equals(service, "SMS", StringComparison.OrdinalIgnoreCase);
+            ComposeServiceIndicator.Text = sms ? "SMS" : (string.Equals(service, "RCS", StringComparison.OrdinalIgnoreCase) ? "RCS" : "iMessage");
+            ComposeServiceIndicator.Foreground = new SolidColorBrush(sms ? Windows.UI.Color.FromArgb(255, 76, 175, 80) : Windows.UI.Color.FromArgb(255, 74, 163, 255));
+        }
+
+        private static List<string> ParseRecipients(string text)
+        {
+            return (text ?? string.Empty).Split(new[] { ',', ';', '\n', '\r' }, StringSplitOptions.RemoveEmptyEntries)
+                .Select(value => value.Trim()).Where(value => value.Length > 0).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
         }
 
         private async void ComposeSend_Click(object sender, RoutedEventArgs e) { await SendComposedMessageAsync(); }
@@ -596,7 +752,9 @@ namespace WpBlueBubbles
             var message = ComposeMessageBox.Text.Trim();
             if (string.IsNullOrWhiteSpace(message) && _sharedFile == null) { ShowStatus("Write a message or choose an attachment before sending.", true); return; }
             var recipient = RecipientBox.Text.Trim();
-            if (_composeSelectedChat == null && string.IsNullOrWhiteSpace(recipient)) { ShowStatus("Enter a phone number or email address.", true); return; }
+            var recipients = ParseRecipients(recipient);
+            if (_composeSelectedChat == null && recipients.Count == 0) { ShowStatus("Enter at least one phone number or email address.", true); return; }
+            if (_composeSelectedChat == null && recipients.Count > 1 && !_serverCapabilities.CanUsePrivateApi) { ShowStatus("Creating group chats requires the BlueBubbles Private API helper.", true); return; }
             if (_composeSelectedChat == null && string.IsNullOrWhiteSpace(message)) { ShowStatus("Write a message before starting a new conversation with an attachment.", true); return; }
 
             var sent = false;
@@ -607,7 +765,7 @@ namespace WpBlueBubbles
             {
                 SetSyncing(true, "Sending message...");
                 ChatItem chat = _composeSelectedChat;
-                if (chat == null) chat = await _client.CreateChatAsync(recipient, message);
+                if (chat == null) chat = await _client.CreateChatAsync(recipients, message, _composeService);
                 else if (!string.IsNullOrWhiteSpace(message)) await _client.SendTextAsync(chat.Guid, message);
                 if (chat == null || string.IsNullOrWhiteSpace(chat.Guid)) throw new InvalidOperationException("BlueBubbles sent the message but did not return the conversation.");
                 if (_sharedFile != null) await _client.SendAttachmentAsync(chat.Guid, _sharedFile);
@@ -645,12 +803,14 @@ namespace WpBlueBubbles
 
         private async void ChooseContact_Click(object sender, RoutedEventArgs e)
         {
+            _contactsForCompose = true;
             ComposeOverlay.Visibility = Visibility.Collapsed;
             await OpenContactsAsync();
         }
 
         private async void Contacts_Click(object sender, RoutedEventArgs e)
         {
+            _contactsForCompose = false;
             NavigationSplitView.IsPaneOpen = false;
             await OpenContactsAsync();
         }
@@ -667,6 +827,7 @@ namespace WpBlueBubbles
         private void CloseContacts_Click(object sender, RoutedEventArgs e)
         {
             ContactsOverlay.Visibility = Visibility.Collapsed;
+            if (_contactsForCompose) ComposeOverlay.Visibility = Visibility.Visible;
         }
 
         private void ContactsSearchBox_TextChanged(object sender, TextChangedEventArgs e)
@@ -686,7 +847,15 @@ namespace WpBlueBubbles
             var contact = e.ClickedItem as ContactChoice;
             if (contact == null) return;
             ContactsOverlay.Visibility = Visibility.Collapsed;
-            OpenComposeForRecipient(contact.Address);
+            if (_contactsForCompose)
+            {
+                var recipients = ParseRecipients(RecipientBox.Text);
+                if (!recipients.Contains(contact.Address, StringComparer.OrdinalIgnoreCase)) recipients.Add(contact.Address);
+                RecipientBox.Text = string.Join(", ", recipients);
+                ComposeOverlay.Visibility = Visibility.Visible;
+                RecipientBox.Focus(FocusState.Programmatic);
+            }
+            else OpenComposeForRecipient(contact.Address);
         }
 
         private async void MessagesPerChatSlider_ValueChanged(object sender, Windows.UI.Xaml.Controls.Primitives.RangeBaseValueChangedEventArgs e)
@@ -866,9 +1035,16 @@ namespace WpBlueBubbles
         {
             if (_selectedChat == null) return;
             var pin = new UICommand("Pin to Start");
+            var rename = new UICommand("Rename group");
+            var leave = new UICommand("Leave group");
             var delete = new UICommand("Delete chat");
             var menu = new PopupMenu();
             menu.Commands.Add(pin);
+            if (_selectedChat.IsGroupChat)
+            {
+                menu.Commands.Add(rename);
+                menu.Commands.Add(leave);
+            }
             menu.Commands.Add(delete);
             var point = ChatActionsButton.TransformToVisual(null).TransformPoint(new Point());
             var selected = await menu.ShowForSelectionAsync(new Rect(point, ChatActionsButton.RenderSize));
@@ -876,10 +1052,61 @@ namespace WpBlueBubbles
             {
                 await PinSelectedChatAsync();
             }
+            else if (selected == rename)
+            {
+                await RenameSelectedGroupAsync();
+            }
+            else if (selected == leave)
+            {
+                await LeaveSelectedGroupAsync();
+            }
             else if (selected == delete)
             {
                 await DeleteSelectedChatAsync();
             }
+        }
+
+        private async Task RenameSelectedGroupAsync()
+        {
+            if (_client == null || _selectedChat == null || !_selectedChat.IsGroupChat) return;
+            if (!_serverCapabilities.CanUsePrivateApi) { ShowStatus("Renaming groups requires the BlueBubbles Private API helper.", true); return; }
+            var nameBox = new TextBox { Text = _selectedChat.Title, PlaceholderText = "Group name" };
+            var dialog = new ContentDialog { Title = "Rename group", Content = nameBox, PrimaryButtonText = "Rename", CloseButtonText = "Cancel" };
+            if (await dialog.ShowAsync() != ContentDialogResult.Primary || string.IsNullOrWhiteSpace(nameBox.Text)) return;
+            try
+            {
+                SetSyncing(true, "Renaming group...");
+                await _client.RenameGroupChatAsync(_selectedChat.Guid, nameBox.Text);
+                _chatStateSignature = null;
+                await RefreshChatsAsync();
+                _selectedChat = _allChats.FirstOrDefault(chat => chat.Guid == _selectedChat.Guid) ?? _selectedChat;
+                PageTitle.Text = _selectedChat.Title;
+            }
+            catch (Exception ex) { ShowStatus(ex.Message, true); }
+            finally { SetSyncing(false, null); }
+        }
+
+        private async Task LeaveSelectedGroupAsync()
+        {
+            if (_client == null || _selectedChat == null || !_selectedChat.IsGroupChat) return;
+            if (!_serverCapabilities.CanUsePrivateApi) { ShowStatus("Leaving groups requires the BlueBubbles Private API helper.", true); return; }
+            var dialog = new MessageDialog("Leave \"" + _selectedChat.Title + "\"? You may need another participant to add you again.", "Leave group?");
+            var confirm = new UICommand("Leave group");
+            dialog.Commands.Add(confirm);
+            dialog.Commands.Add(new UICommand("Cancel"));
+            dialog.DefaultCommandIndex = 1;
+            dialog.CancelCommandIndex = 1;
+            if (await dialog.ShowAsync() != confirm) return;
+            try
+            {
+                SetSyncing(true, "Leaving group...");
+                await _client.LeaveGroupChatAsync(_selectedChat.Guid);
+                ShowChatPage(_showArchived);
+                _chatStateSignature = null;
+                await RefreshChatsAsync();
+            }
+            catch (Exception ex) { ShowStatus(ex.Message, true); }
+            finally { SetSyncing(false, null); }
         }
 
         private async Task PinSelectedChatAsync()
@@ -895,6 +1122,7 @@ namespace WpBlueBubbles
         private async Task DeleteSelectedChatAsync()
         {
             if (_client == null || _selectedChat == null) return;
+            if (!_serverCapabilities.CanUsePrivateApi) { ShowStatus("Deleting chats requires the BlueBubbles Private API helper.", true); return; }
             var title = _selectedChat.Title;
             var dialog = new MessageDialog("Delete \"" + title + "\" permanently from the BlueBubbles server? This cannot be undone.", "Delete conversation?");
             var confirm = new UICommand("Delete permanently");
@@ -956,6 +1184,7 @@ namespace WpBlueBubbles
 
         private void ReturnToChats()
         {
+            StopTypingWithoutWaiting();
             if (UseSinglePaneLayout)
             {
                 ChatColumn.Width = new GridLength(1, GridUnitType.Star);
@@ -1108,6 +1337,13 @@ namespace WpBlueBubbles
             var image = sender as Image;
             var message = image?.DataContext as MessageItem;
             if (message != null) message.MarkAttachmentFailed();
+        }
+
+        private void ChatAvatar_Failed(object sender, ExceptionRoutedEventArgs e)
+        {
+            var image = sender as Image;
+            var chat = image == null ? null : image.DataContext as ChatItem;
+            if (chat != null && chat.IsGroupChat) chat.AvatarSource = null;
         }
 
         private async void Media_Opened(object sender, RoutedEventArgs e)

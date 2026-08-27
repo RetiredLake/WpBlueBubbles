@@ -19,11 +19,12 @@ namespace WpBlueBubbles.Models
         public string AttachmentUri { get; set; }
         public bool IsImageAttachment { get; set; }
         public bool IsVideoAttachment { get; set; }
+        public bool UsesSmsColor { get; set; }
         public bool HasText { get { return !string.IsNullOrWhiteSpace(Text); } }
         public bool HasNonPreviewAttachment { get { return HasAttachments && !IsImageAttachment && !IsVideoAttachment; } }
         public event PropertyChangedEventHandler PropertyChanged;
         public HorizontalAlignment BubbleAlignment { get { return IsFromMe ? HorizontalAlignment.Right : HorizontalAlignment.Left; } }
-        public Brush BubbleBrush { get { return new SolidColorBrush(IsFromMe ? Windows.UI.Color.FromArgb(255, 14, 99, 156) : Windows.UI.Color.FromArgb(255, 39, 52, 60)); } }
+        public Brush BubbleBrush { get { return new SolidColorBrush(IsFromMe ? (UsesSmsColor ? Windows.UI.Color.FromArgb(255, 46, 125, 50) : Windows.UI.Color.FromArgb(255, 14, 99, 156)) : Windows.UI.Color.FromArgb(255, 39, 52, 60)); } }
 
         public static MessageItem FromJson(JsonObject json)
         {

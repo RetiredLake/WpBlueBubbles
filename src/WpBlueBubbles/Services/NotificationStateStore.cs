@@ -66,6 +66,30 @@ namespace WpBlueBubbles.Services
             Save(states.Values);
         }
 
+        public static void ReconcileReadState(IEnumerable<WpBlueBubbles.Models.ChatItem> chats)
+        {
+            var states = Load().ToDictionary(pair => pair.Key, pair => pair.Value);
+            foreach (var chat in chats)
+            {
+                NotificationChatState prior;
+                if (states.TryGetValue(chat.Guid, out prior) && string.Equals(prior.MessageGuid, chat.LastMessageGuid) && !prior.IsUnread)
+                {
+                    chat.IsUnread = false;
+                }
+                else
+                {
+                    states[chat.Guid] = new NotificationChatState
+                    {
+                        ChatGuid = chat.Guid,
+                        MessageGuid = chat.LastMessageGuid,
+                        Timestamp = chat.LastMessageTimestamp,
+                        IsUnread = chat.IsUnread
+                    };
+                }
+            }
+            Save(states.Values);
+        }
+
         public static int UnreadConversationCount()
         {
             return Load().Values.Count(state => state.IsUnread);
