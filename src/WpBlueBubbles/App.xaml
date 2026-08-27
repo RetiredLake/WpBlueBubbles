@@ -4,7 +4,7 @@
       <local:BooleanToVisibilityConverter x:Key="BooleanToVisibilityConverter" />
       <Color x:Key="MessengerBlue">#0E639C</Color>
       <SolidColorBrush x:Key="MessengerBlueBrush" Color="{StaticResource MessengerBlue}" />
-      <SolidColorBrush x:Key="SentMessageBrush" Color="{StaticResource MessengerBlue}" />
+      <SolidColorBrush x:Key="IncomingMessageBrush" Color="#26343D" />
       <SolidColorBrush x:Key="AppBackgroundBrush" Color="#071117" />
       <SolidColorBrush x:Key="PanelBackgroundBrush" Color="#0B171E" />
       <SolidColorBrush x:Key="HeaderBackgroundBrush" Color="#09141B" />

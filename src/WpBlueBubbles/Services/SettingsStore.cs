@@ -38,7 +38,7 @@ namespace WpBlueBubbles.Services
                 Password = LoadPassword(),
                 MessagesPerChat = ReadInteger(values, MessagesPerChatKey, 15, 1, 50),
                 SyncTimeframeDays = ReadInteger(values, SyncTimeframeDaysKey, 7, 0, 3650),
-                OledBlack = ReadBoolean(values, OledBlackKey),
+                OledBlack = ReadBoolean(values, OledBlackKey, true),
                 UseAccentColor = ReadBoolean(values, UseAccentColorKey),
                 LargerUi = ReadBoolean(values, LargerUiKey),
                 DeveloperMode = ReadBoolean(values, DeveloperModeKey)
@@ -113,9 +113,9 @@ namespace WpBlueBubbles.Services
             }
         }
 
-        private static bool ReadBoolean(Windows.Foundation.Collections.IPropertySet values, string key)
+        private static bool ReadBoolean(Windows.Foundation.Collections.IPropertySet values, string key, bool fallback = false)
         {
-            return values.ContainsKey(key) && values[key] is bool && (bool)values[key];
+            return values.ContainsKey(key) && values[key] is bool ? (bool)values[key] : fallback;
         }
 
         private static int ReadInteger(Windows.Foundation.Collections.IPropertySet values, string key, int fallback, int minimum, int maximum)

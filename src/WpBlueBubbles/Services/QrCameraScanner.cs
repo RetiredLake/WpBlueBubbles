@@ -25,7 +25,7 @@ namespace WpBlueBubbles.Services
             await _capture.StartPreviewAsync();
             if (string.Equals(AnalyticsInfo.DeviceForm, "Phone", StringComparison.OrdinalIgnoreCase))
             {
-                try { _capture.SetPreviewRotation(VideoRotation.Clockwise90Degrees); }
+                try { _capture.SetPreviewRotation(VideoRotation.Clockwise270Degrees); }
                 catch { }
             }
         }

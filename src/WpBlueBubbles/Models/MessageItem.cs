@@ -28,7 +28,7 @@ namespace WpBlueBubbles.Models
         public bool HasNonPreviewAttachment { get { return HasAttachments && !IsImageAttachment && !IsVideoAttachment; } }
         public event PropertyChangedEventHandler PropertyChanged;
         public HorizontalAlignment BubbleAlignment { get { return IsFromMe ? HorizontalAlignment.Right : HorizontalAlignment.Left; } }
-        public Brush BubbleBrush { get { return Application.Current.Resources[IsFromMe ? "SentMessageBrush" : "MessengerBlueBrush"] as Brush; } }
+        public Brush BubbleBrush { get { return Application.Current.Resources[IsFromMe ? "MessengerBlueBrush" : "IncomingMessageBrush"] as Brush; } }
 
         public static MessageItem FromJson(JsonObject json)
         {

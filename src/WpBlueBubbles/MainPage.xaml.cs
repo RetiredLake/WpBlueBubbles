@@ -324,8 +324,7 @@ namespace WpBlueBubbles
                 var message = received[i];
                 message.UsesSmsColor = selectedChat.UsesSmsColor;
                 message.ResolveSender(selectedChat.IsGroupChat, _contactNames);
-                if (message.IsImageAttachment) message.SetAttachmentUri(client.GetAttachmentDownloadUri(message.AttachmentGuid));
-                else if (message.IsVideoAttachment) await PrepareVideoAsync(client, message);
+                if (message.IsImageAttachment || message.IsVideoAttachment) await PrepareMediaAsync(client, message);
                 _messages.Add(message);
                 SetSyncing(true, "Syncing messages: " + (i + 1) + " of " + total);
             }
@@ -400,7 +399,13 @@ namespace WpBlueBubbles
                 await RefreshMessagesAsync(true);
             }
             catch (Exception ex) { ShowStatus(FriendlyError(ex, "send the message"), true); }
-            finally { SendButton.IsEnabled = true; MessageBox.IsReadOnly = false; MessageBox.Opacity = 1; MessageBox.Focus(FocusState.Programmatic); }
+            finally
+            {
+                SendButton.IsEnabled = true;
+                MessageBox.IsReadOnly = false;
+                MessageBox.Opacity = 1;
+                if (ShouldRefocusAfterSend) MessageBox.Focus(FocusState.Programmatic);
+            }
         }
 
         private async void Send_Click(object sender, RoutedEventArgs e) { await SendCurrentMessageAsync(); }
@@ -418,6 +423,11 @@ namespace WpBlueBubbles
             if (e.Key != VirtualKey.Enter || _inputPaneVisible) return false;
             if (string.Equals(AnalyticsInfo.DeviceForm, "Phone", StringComparison.OrdinalIgnoreCase)) return false;
             return !Window.Current.CoreWindow.GetKeyState(VirtualKey.Shift).HasFlag(CoreVirtualKeyStates.Down);
+        }
+
+        private bool ShouldRefocusAfterSend
+        {
+            get { return !string.Equals(AnalyticsInfo.DeviceForm, "Phone", StringComparison.OrdinalIgnoreCase); }
         }
 
         private async void MessageBox_TextChanged(object sender, TextChangedEventArgs e)
@@ -451,7 +461,7 @@ namespace WpBlueBubbles
                 catch (Exception ex)
                 {
                     if (string.Equals(_typingChatGuid, chat.Guid, StringComparison.OrdinalIgnoreCase)) _typingChatGuid = null;
-                    ShowStatus(ex.Message, true);
+                    ShowStatus(FriendlyError(ex, "update typing status"), true);
                 }
             }
             _typingStopTimer.Start();
@@ -594,14 +604,15 @@ namespace WpBlueBubbles
             StageSharedContentInComposer();
         }
 
-        private async Task PrepareVideoAsync(BlueBubblesClient client, MessageItem message)
+        private async Task PrepareMediaAsync(BlueBubblesClient client, MessageItem message)
         {
             try
             {
                 var folder = await ApplicationData.Current.TemporaryFolder.CreateFolderAsync("MessageMedia", CreationCollisionOption.OpenIfExists);
                 var extension = Path.GetExtension(message.AttachmentLabel);
-                if (string.IsNullOrWhiteSpace(extension)) extension = message.AttachmentMimeType.IndexOf("quicktime", StringComparison.OrdinalIgnoreCase) >= 0 ? ".mov" : ".mp4";
-                var safeGuid = Regex.Replace(message.AttachmentGuid ?? message.Guid ?? Guid.NewGuid().ToString("N"), "[^A-Za-z0-9_-]", "_");
+                if (string.IsNullOrWhiteSpace(extension)) extension = GetMediaExtension(message);
+                var cacheKey = !string.IsNullOrWhiteSpace(message.AttachmentGuid) ? message.AttachmentGuid : !string.IsNullOrWhiteSpace(message.Guid) ? message.Guid : Guid.NewGuid().ToString("N");
+                var safeGuid = Regex.Replace(cacheKey, "[^A-Za-z0-9_-]", "_");
                 var file = await folder.CreateFileAsync(safeGuid + extension, CreationCollisionOption.OpenIfExists);
                 var properties = await file.GetBasicPropertiesAsync();
                 if (properties.Size == 0) await FileIO.WriteBytesAsync(file, await client.DownloadAttachmentAsync(message.AttachmentGuid));
@@ -611,6 +622,17 @@ namespace WpBlueBubbles
             {
                 message.MarkAttachmentFailed();
             }
+        }
+
+        private static string GetMediaExtension(MessageItem message)
+        {
+            var mime = message.AttachmentMimeType ?? string.Empty;
+            if (mime.IndexOf("png", StringComparison.OrdinalIgnoreCase) >= 0) return ".png";
+            if (mime.IndexOf("gif", StringComparison.OrdinalIgnoreCase) >= 0) return ".gif";
+            if (mime.IndexOf("heic", StringComparison.OrdinalIgnoreCase) >= 0) return ".heic";
+            if (mime.IndexOf("quicktime", StringComparison.OrdinalIgnoreCase) >= 0) return ".mov";
+            if (message.IsVideoAttachment) return ".mp4";
+            return ".jpg";
         }
 
         private async void Message_Holding(object sender, HoldingRoutedEventArgs e)
@@ -854,7 +876,7 @@ namespace WpBlueBubbles
                 ComposeMessageBox.IsReadOnly = false;
                 RecipientBox.IsReadOnly = false;
                 ComposeMessageBox.Opacity = RecipientBox.Opacity = 1;
-                if (ComposeOverlay.Visibility == Visibility.Visible) ComposeMessageBox.Focus(FocusState.Programmatic);
+                if (ComposeOverlay.Visibility == Visibility.Visible && ShouldRefocusAfterSend) ComposeMessageBox.Focus(FocusState.Programmatic);
                 SetSyncing(false, null);
             }
         }
@@ -1052,9 +1074,8 @@ namespace WpBlueBubbles
         {
             var resources = Application.Current.Resources;
             var blue = useAccentColor ? new UISettings().GetColorValue(UIColorType.Accent) : Windows.UI.Color.FromArgb(255, 14, 99, 156);
-            var sent = useAccentColor ? new UISettings().GetColorValue(UIColorType.AccentDark1) : blue;
             SetBrushColor(resources, "MessengerBlueBrush", blue);
-            SetBrushColor(resources, "SentMessageBrush", sent);
+            SetBrushColor(resources, "IncomingMessageBrush", Windows.UI.Color.FromArgb(255, 38, 52, 61));
             SetBrushColor(resources, "AppBackgroundBrush", oledBlack ? Windows.UI.Colors.Black : Windows.UI.Color.FromArgb(255, 7, 17, 23));
             SetBrushColor(resources, "PanelBackgroundBrush", oledBlack ? Windows.UI.Colors.Black : Windows.UI.Color.FromArgb(255, 11, 23, 30));
             SetBrushColor(resources, "HeaderBackgroundBrush", oledBlack ? Windows.UI.Colors.Black : Windows.UI.Color.FromArgb(255, 9, 20, 27));
@@ -1077,8 +1098,11 @@ namespace WpBlueBubbles
             PrimaryHeaderRow.Height = new GridLength(larger ? 64 : 54);
             HeaderLeadingColumn.Width = new GridLength(larger ? 64 : 54);
             PageTitle.FontSize = larger ? 25 : 22;
+            foreach (var row in new[] { SettingsHeaderRow, ComposeHeaderRow, ContactsHeaderRow }) row.Height = new GridLength(larger ? 64 : 54);
+            foreach (var column in new[] { SettingsHeaderLeadingColumn, ComposeHeaderLeadingColumn, ContactsHeaderLeadingColumn }) column.Width = new GridLength(larger ? 64 : 54);
+            foreach (var title in new[] { SettingsHeaderTitle, ComposeHeaderTitle, ContactsHeaderTitle }) title.FontSize = larger ? 25 : 22;
             var iconSize = larger ? 52 : 44;
-            foreach (var button in new[] { MenuButton, BackButton, ChatActionsButton, SearchButton, ComposeButton })
+            foreach (var button in new[] { MenuButton, BackButton, ChatActionsButton, SearchButton, ComposeButton, SettingsBackButton, ComposeBackButton, ContactsBackButton })
             {
                 button.Width = iconSize;
                 button.Height = iconSize;
@@ -1141,10 +1165,10 @@ namespace WpBlueBubbles
             dialog.DefaultCommandIndex = 1;
             dialog.CancelCommandIndex = 1;
             if (await dialog.ShowAsync() != confirm) return;
-            SignOutLocally();
+            await SignOutLocallyAsync();
         }
 
-        private void SignOutLocally()
+        private async Task SignOutLocallyAsync()
         {
             _settingsLoaded = false;
             _messageLoadGeneration++;
@@ -1157,11 +1181,20 @@ namespace WpBlueBubbles
             ResetMessageItems();
             _chatStateSignature = null;
             SettingsStore.Clear();
-            OledBlackToggle.IsOn = false;
+            await ClearStorageFolderAsync(ApplicationData.Current.LocalFolder);
+            await ClearStorageFolderAsync(ApplicationData.Current.TemporaryFolder);
+            await ClearStorageFolderAsync(ApplicationData.Current.LocalCacheFolder);
+            _allContacts.Clear();
+            _contacts.Clear();
+            _contactNames = new Dictionary<string, string>();
+            _contactImages = new Dictionary<string, ImageSource>();
+            _contactTileImages = new Dictionary<string, string>();
+            ClearSharedContent();
+            OledBlackToggle.IsOn = true;
             AccentColorToggle.IsOn = false;
             DeveloperModeToggle.IsOn = false;
             LargerUiToggle.IsOn = false;
-            ApplyTheme(false, false, false);
+            ApplyTheme(true, false, false);
             _serverCapabilitiesKnown = false;
             _serverCapabilities = new ServerCapabilities();
             UpdateServerDetails(string.Empty);
@@ -1171,6 +1204,19 @@ namespace WpBlueBubbles
             SettingsOverlay.Visibility = Visibility.Visible;
             ReturnToChats();
             _settingsLoaded = true;
+        }
+
+        private static async Task ClearStorageFolderAsync(StorageFolder folder)
+        {
+            try
+            {
+                foreach (var item in await folder.GetItemsAsync())
+                {
+                    try { await item.DeleteAsync(StorageDeleteOption.PermanentDelete); }
+                    catch { try { await item.DeleteAsync(); } catch { } }
+                }
+            }
+            catch { }
         }
 
         private void ShowChatPage(bool archived)
@@ -1339,7 +1385,7 @@ namespace WpBlueBubbles
             }
         }
 
-        private void InputPane_Showing(InputPane sender, InputPaneVisibilityEventArgs args)
+        private async void InputPane_Showing(InputPane sender, InputPaneVisibilityEventArgs args)
         {
             _inputPaneVisible = true;
             // Fit the entire app between its current top edge and the keyboard's top edge.
@@ -1354,7 +1400,13 @@ namespace WpBlueBubbles
                 RootGrid.Height = availableHeight;
             }
             PrimaryHeader.Visibility = Visibility.Visible;
-            if (_messages.Count > 0) MessagesList.ScrollIntoView(_messages[_messages.Count - 1]);
+            if (_messages.Count > 0)
+            {
+                _pinMessagesToBottomUntil = DateTimeOffset.Now.AddSeconds(2);
+                await ScrollToNewestMessageAsync();
+                await Task.Delay(180);
+                if (_inputPaneVisible) await ScrollToNewestMessageAsync();
+            }
         }
 
         private void InputPane_Hiding(InputPane sender, InputPaneVisibilityEventArgs args)
@@ -1557,7 +1609,7 @@ namespace WpBlueBubbles
             var media = sender as FrameworkElement;
             var message = media?.DataContext as MessageItem;
             if (message != null) message.MarkAttachmentFailed();
-            ShowStatus("This video could not be loaded. It may use a format unsupported by Windows Phone.", true);
+            if (DeveloperModeToggle.IsOn) ShowStatus("Developer details: MediaElement could not decode or open this video.", true);
         }
 
         private void ChatAvatar_Failed(object sender, ExceptionRoutedEventArgs e)
@@ -1604,19 +1656,20 @@ namespace WpBlueBubbles
             if (_statusIsError) _statusTimer.Start();
         }
 
-        private static string FriendlyError(Exception exception, string action)
+        private string FriendlyError(Exception exception, string action)
         {
-            if (!HasNetworkConnection()) return "This device is offline. Connect to Wi-Fi or cellular data, then try again.";
             var root = exception == null ? null : exception.GetBaseException();
             var detail = root == null ? string.Empty : root.Message ?? string.Empty;
-            if (root is HttpRequestException || root is TaskCanceledException || detail.IndexOf("net_http", StringComparison.OrdinalIgnoreCase) >= 0 || detail.IndexOf("connection", StringComparison.OrdinalIgnoreCase) >= 0)
-                return "The BlueBubbles server is offline or unreachable. Check that the Mac and server are running on the same network.";
-            if (detail.IndexOf("not found", StringComparison.OrdinalIgnoreCase) >= 0 || detail.IndexOf("404", StringComparison.OrdinalIgnoreCase) >= 0)
-                return "The conversation was not found on the BlueBubbles server. Refresh Chats and try again.";
-            var prefix = "BlueBubbles could not " + action + ".";
-            if (detail.Length == 0) return prefix;
-            if (detail.Length > 180) detail = detail.Substring(0, 180).TrimEnd() + "...";
-            return prefix + " " + detail;
+            string friendly;
+            if (!HasNetworkConnection()) friendly = "This device is offline. Connect to Wi-Fi or cellular data, then try again.";
+            else if (root is HttpRequestException || root is TaskCanceledException || detail.IndexOf("net_http", StringComparison.OrdinalIgnoreCase) >= 0 || detail.IndexOf("connection", StringComparison.OrdinalIgnoreCase) >= 0)
+                friendly = "The BlueBubbles server is offline or unreachable. Check that the Mac and server are running on the same network.";
+            else if (detail.IndexOf("not found", StringComparison.OrdinalIgnoreCase) >= 0 || detail.IndexOf("404", StringComparison.OrdinalIgnoreCase) >= 0)
+                friendly = "The conversation was not found on the BlueBubbles server. Refresh Chats and try again.";
+            else friendly = "BlueBubbles could not " + action + ".";
+            if (!DeveloperModeToggle.IsOn || detail.Length == 0) return friendly;
+            if (detail.Length > 900) detail = detail.Substring(0, 900).TrimEnd() + "...";
+            return friendly + "\r\n\r\nDeveloper details: " + root.GetType().Name + ": " + detail;
         }
 
         private static bool HasNetworkConnection()

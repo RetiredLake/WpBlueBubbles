@@ -3,6 +3,19 @@
 All releases are beta software. Versions before v0.2.0.0 are retained as legacy
 builds and may contain bugs fixed by later releases.
 
+## v0.2.1.6 Beta
+
+- Anchored the newest message above the Lumia keyboard after its final layout pass.
+- Avoided the Lumia close/reopen keyboard flicker after sending; PC still refocuses for continued typing.
+- Made OLED black the default for new and reset installations.
+- Applied compact header sizing to Settings, Contacts, and New message pages.
+- Added raw exception diagnostics only when Developer mode is enabled.
+- Removed the redundant public video-decoding error while retaining the unavailable label.
+- Downloaded pictures and videos into a local media cache before rendering.
+- Restored gray incoming bubbles; sent bubbles remain Messenger blue or Windows accent.
+- Corrected the phone QR preview rotation in the opposite direction.
+- Expanded sign-out/reset to remove local files, temporary media, caches, unread state, contacts, and credentials.
+
 ## v0.2.1.5 Beta
 
 - Added a GroupMe-inspired compact phone layout with an optional Larger UI mode.
