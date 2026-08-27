@@ -164,7 +164,7 @@ namespace WpBlueBubbles
         private async Task<bool> StartClientAsync(string address, string password, bool closeSettings)
         {
             _messageLoadGeneration++;
-            _messages.Clear();
+            ResetMessageItems();
             ConnectButton.IsEnabled = false;
             ConnectProgress.IsActive = true;
             ConnectError.Text = string.Empty;
@@ -232,6 +232,14 @@ namespace WpBlueBubbles
             return string.Join("|", chats.OrderBy(chat => chat.Guid).Select(chat => chat.Guid + ":" + chat.LastMessageGuid + ":" + chat.LastMessageTimestamp + ":" + chat.IsArchived + ":" + chat.Title));
         }
 
+        private void ResetMessageItems()
+        {
+            // Tear down message visuals so no recycled text or media survives a chat change.
+            MessagesList.ItemsSource = null;
+            _messages.Clear();
+            MessagesList.ItemsSource = _messages;
+        }
+
         private async Task RefreshMessagesAsync(bool forceScroll)
         {
             var client = _client;
@@ -247,7 +255,7 @@ namespace WpBlueBubbles
             if (!forceScroll && priorLastGuid == newLastGuid && _messages.Count == received.Count) return;
             var total = received.Count;
             SetSyncing(true, "Syncing messages: 0 of " + total);
-            _messages.Clear();
+            ResetMessageItems();
             for (var i = 0; i < total; i++)
             {
                 var message = received[i];
@@ -275,7 +283,7 @@ namespace WpBlueBubbles
         private async void ChatsList_ItemClick(object sender, ItemClickEventArgs e)
         {
             _messageLoadGeneration++;
-            _messages.Clear();
+            ResetMessageItems();
             _selectedChat = e.ClickedItem as ChatItem;
             if (_selectedChat == null) return;
             UpdateHeaderActions(true);
@@ -475,7 +483,7 @@ namespace WpBlueBubbles
             var chat = _allChats.FirstOrDefault(item => item.Guid == chatGuid);
             if (chat == null) return;
             _messageLoadGeneration++;
-            _messages.Clear();
+            ResetMessageItems();
             _selectedChat = chat;
             UpdateHeaderActions(true);
             PageTitle.Text = chat.Title;
@@ -544,7 +552,7 @@ namespace WpBlueBubbles
                 if (_shareOperation != null) CompleteSharedContent();
                 await RefreshChatsAsync();
                 _messageLoadGeneration++;
-                _messages.Clear();
+                ResetMessageItems();
                 _selectedChat = _allChats.FirstOrDefault(item => item.Guid == chat.Guid) ?? chat;
                 PageTitle.Text = _selectedChat.Title;
                 EmptyConversation.Visibility = Visibility.Collapsed;
@@ -745,7 +753,7 @@ namespace WpBlueBubbles
             _selectedChat = null;
             _allChats.Clear();
             _chats.Clear();
-            _messages.Clear();
+            ResetMessageItems();
             _chatStateSignature = null;
             SettingsStore.Clear();
             ServerAddressBox.Text = string.Empty;
@@ -759,6 +767,7 @@ namespace WpBlueBubbles
         {
             NavigationSplitView.IsPaneOpen = false;
             _messageLoadGeneration++;
+            ResetMessageItems();
             _showArchived = archived;
             PageTitle.Text = archived ? "Archived" : "Chats";
             ApplyChatSearch();
@@ -838,9 +847,17 @@ namespace WpBlueBubbles
 
         private void InputPane_Showing(InputPane sender, InputPaneVisibilityEventArgs args)
         {
-            // Reserve the keyboard's space ourselves so both the header and composer remain visible.
+            // Fit the entire app between its current top edge and the keyboard's top edge.
+            // This is absolute, so it cannot double-apply an inset if Windows already resized us.
             args.EnsuredFocusedElementInView = true;
-            RootGrid.Margin = new Thickness(0, 0, 0, Math.Max(0, args.OccludedRect.Height));
+            RootGrid.Margin = new Thickness(0);
+            var rootTop = RootGrid.TransformToVisual(null).TransformPoint(new Point(0, 0)).Y;
+            var availableHeight = args.OccludedRect.Top - rootTop;
+            if (availableHeight > 0)
+            {
+                RootGrid.VerticalAlignment = VerticalAlignment.Top;
+                RootGrid.Height = availableHeight;
+            }
             PrimaryHeader.Visibility = Visibility.Visible;
             if (_messages.Count > 0) MessagesList.ScrollIntoView(_messages[_messages.Count - 1]);
         }
@@ -848,6 +865,8 @@ namespace WpBlueBubbles
         private void InputPane_Hiding(InputPane sender, InputPaneVisibilityEventArgs args)
         {
             RootGrid.Margin = new Thickness(0);
+            RootGrid.Height = double.NaN;
+            RootGrid.VerticalAlignment = VerticalAlignment.Stretch;
         }
         private void MainPage_BackRequested(object sender, BackRequestedEventArgs e)
         {
@@ -1031,8 +1050,19 @@ namespace WpBlueBubbles
         private void MessageText_Loaded(object sender, RoutedEventArgs e)
         {
             var block = sender as RichTextBlock;
-            var message = block?.DataContext as MessageItem;
-            if (block == null || message == null) return;
+            RenderMessageText(block, block?.DataContext as MessageItem);
+        }
+
+        private void MessageText_DataContextChanged(FrameworkElement sender, DataContextChangedEventArgs args)
+        {
+            RenderMessageText(sender as RichTextBlock, args.NewValue as MessageItem);
+        }
+
+        private static void RenderMessageText(RichTextBlock block, MessageItem message)
+        {
+            if (block == null) return;
+            block.Blocks.Clear();
+            if (message == null) return;
             var paragraph = new Paragraph();
             var index = 0;
             foreach (Match match in Regex.Matches(message.Text ?? string.Empty, @"https?://[^\s]+", RegexOptions.IgnoreCase))
@@ -1049,7 +1079,6 @@ namespace WpBlueBubbles
                 index = match.Index + match.Length;
             }
             if (index < (message.Text ?? string.Empty).Length) paragraph.Inlines.Add(new Run { Text = message.Text.Substring(index) });
-            block.Blocks.Clear();
             block.Blocks.Add(paragraph);
         }
     }
