@@ -3,6 +3,17 @@
 All releases are beta software. Versions before v0.2.0.0 are retained as legacy
 builds and may contain bugs fixed by later releases.
 
+## v0.2.1.0 Beta
+
+- Reorganized connected Settings into Sync, Theme, Server details, Reset, and Credits sections.
+- Added persistent OLED-black and Windows accent-color themes with immediate updates.
+- Unified incoming and outgoing bubbles under the selected Messenger blue or accent color.
+- Added sanitized server details, Private API state, and a reserved Developer mode toggle.
+- Added contact-resolved sender labels to incoming group-chat messages.
+- Added a full-screen picture viewer that closes by tap or system Back.
+- Added cached contact and group photos to unique per-conversation Start tiles, with safe logo fallback.
+- Removed all visible composer service-availability status text while retaining internal routing checks.
+
 ## v0.2.0.1 Beta
 
 - Matched the official BlueBubbles full-sync behavior by hiding chats whose latest message falls outside the selected timeframe.

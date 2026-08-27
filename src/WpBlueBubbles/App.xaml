@@ -6,6 +6,8 @@
       <SolidColorBrush x:Key="MessengerBlueBrush" Color="{StaticResource MessengerBlue}" />
       <SolidColorBrush x:Key="AppBackgroundBrush" Color="#071117" />
       <SolidColorBrush x:Key="PanelBackgroundBrush" Color="#0B171E" />
+      <SolidColorBrush x:Key="HeaderBackgroundBrush" Color="#09141B" />
+      <SolidColorBrush x:Key="AppBorderBrush" Color="#33434C" />
       <SolidColorBrush x:Key="MutedTextBrush" Color="#AEB8BE" />
     </ResourceDictionary>
   </Application.Resources>

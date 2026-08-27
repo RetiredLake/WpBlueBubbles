@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.ComponentModel;
 using System.Linq;
 using Windows.Data.Json;
+using Windows.UI.Xaml;
 using Windows.UI.Xaml.Media;
 
 namespace WpBlueBubbles.Models
@@ -18,6 +19,7 @@ namespace WpBlueBubbles.Models
         public string Initials { get; set; }
         public string ParticipantSummary { get; set; }
         public List<string> ParticipantAddresses { get; set; }
+        public string TileImageUri { get; set; }
         public bool IsGroupChat { get; set; }
         public bool IsArchived { get; set; }
         public long LastMessageTimestamp { get; set; }
@@ -39,7 +41,7 @@ namespace WpBlueBubbles.Models
         public bool IsRead { get { return !IsUnread; } }
         public string Service { get; set; }
         public bool UsesSmsColor { get { return string.Equals(Service, "SMS", StringComparison.OrdinalIgnoreCase); } }
-        public Brush ServiceBrush { get { return new SolidColorBrush(UsesSmsColor ? Windows.UI.Color.FromArgb(255, 46, 125, 50) : Windows.UI.Color.FromArgb(255, 14, 99, 156)); } }
+        public Brush ServiceBrush { get { return Application.Current.Resources["MessengerBlueBrush"] as Brush; } }
         public ImageSource AvatarSource
         {
             get { return _avatarSource; }
@@ -124,7 +126,7 @@ namespace WpBlueBubbles.Models
             };
         }
 
-        public void ApplyContactData(IReadOnlyDictionary<string, string> names, IReadOnlyDictionary<string, ImageSource> images)
+        public void ApplyContactData(IReadOnlyDictionary<string, string> names, IReadOnlyDictionary<string, ImageSource> images, IReadOnlyDictionary<string, string> tileImages)
         {
             if (ParticipantAddresses == null || ParticipantAddresses.Count == 0) return;
             var resolved = ParticipantAddresses.Select(address => WpBlueBubbles.Services.ContactsService.Lookup(names, address)).Where(name => !string.IsNullOrWhiteSpace(name)).ToList();
@@ -141,6 +143,10 @@ namespace WpBlueBubbles.Models
             if (!IsGroupChat && images != null)
             {
                 AvatarSource = ParticipantAddresses.Select(address => WpBlueBubbles.Services.ContactsService.LookupImage(images, address)).FirstOrDefault(image => image != null);
+            }
+            if (!IsGroupChat && tileImages != null)
+            {
+                TileImageUri = ParticipantAddresses.Select(address => WpBlueBubbles.Services.ContactsService.LookupTileImage(tileImages, address)).FirstOrDefault(uri => !string.IsNullOrWhiteSpace(uri));
             }
             Initials = MakeInitials(Title);
         }

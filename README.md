@@ -18,7 +18,8 @@ the same C#/XAML application package on desktop Windows.
 - Send and receive text, photos, videos, and general file attachments.
 - Contact names and photos from the local People database.
 - Group names, group photos, multi-recipient composition, rename, leave, and delete.
-- iMessage/RCS blue and SMS green service styling.
+- Configurable Messenger-blue or Windows accent styling with an OLED-black mode.
+- Group sender labels and full-screen picture viewing.
 - Read/unread state, mark-as-read, and typing indicators when Private API is ready.
 - Share target, contact activation, media saving, and per-chat Start tiles.
 
@@ -82,13 +83,13 @@ clients takes priority until notifications are complete.
 
 ## Status
 
-The current release is **v0.2.0.1 Beta**. Builds from v0.1.6.0 through v0.1.9.9
+The current release is **v0.2.1.0 Beta**. Builds from v0.1.6.0 through v0.1.9.9
 are published as legacy betas for testing and historical preservation.
 
-The v0.2 series includes the state-storage hotfix first rebuilt under
-`releases/v0.2.0a`. Growing per-chat state is file-backed rather than stored in
-the size-limited application settings container. v0.2.0.1 additionally aligns
-timeframe filtering and unread state with the official BlueBubbles client.
+The v0.2 series stores growing per-chat state in files rather than the
+size-limited application settings container. v0.2.1.0 adds immediate OLED and
+accent theming, clearer server/settings details, sender labels for group
+messages, full-screen picture viewing, and contact-photo conversation tiles.
 
 Developed by [retiredlake.com](https://retiredlake.com/).
 

@@ -20,16 +20,24 @@ namespace WpBlueBubbles.Models
         public bool IsImageAttachment { get; set; }
         public bool IsVideoAttachment { get; set; }
         public bool UsesSmsColor { get; set; }
+        public string SenderAddress { get; set; }
+        public string SenderServerName { get; set; }
+        public string SenderName { get; set; }
+        public bool ShowSenderName { get; set; }
         public bool HasText { get { return !string.IsNullOrWhiteSpace(Text); } }
         public bool HasNonPreviewAttachment { get { return HasAttachments && !IsImageAttachment && !IsVideoAttachment; } }
         public event PropertyChangedEventHandler PropertyChanged;
         public HorizontalAlignment BubbleAlignment { get { return IsFromMe ? HorizontalAlignment.Right : HorizontalAlignment.Left; } }
-        public Brush BubbleBrush { get { return new SolidColorBrush(IsFromMe ? (UsesSmsColor ? Windows.UI.Color.FromArgb(255, 46, 125, 50) : Windows.UI.Color.FromArgb(255, 14, 99, 156)) : Windows.UI.Color.FromArgb(255, 39, 52, 60)); } }
+        public Brush BubbleBrush { get { return Application.Current.Resources["MessengerBlueBrush"] as Brush; } }
 
         public static MessageItem FromJson(JsonObject json)
         {
             var timestamp = JsonValueReader.Long(json, "dateCreated");
             var text = JsonValueReader.String(json, "text");
+            JsonObject handle;
+            var hasHandle = JsonValueReader.TryObject(json, "handle", out handle);
+            var senderAddress = hasHandle ? JsonValueReader.String(handle, "address") : JsonValueReader.String(json, "otherHandle");
+            var senderServerName = hasHandle ? JsonValueReader.String(handle, "displayName") : string.Empty;
             JsonArray attachments;
             var hasAttachments = JsonValueReader.TryArray(json, "attachments", out attachments) && attachments.Count > 0;
             var attachmentGuid = string.Empty;
@@ -59,8 +67,20 @@ namespace WpBlueBubbles.Models
                 IsImageAttachment = isImage,
                 IsVideoAttachment = isVideo,
                 TimeLabel = DateLabels.FromMilliseconds(timestamp).ToString("g"),
-                IsFromMe = JsonValueReader.Boolean(json, "isFromMe")
+                IsFromMe = JsonValueReader.Boolean(json, "isFromMe"),
+                SenderAddress = senderAddress,
+                SenderServerName = senderServerName
             };
+        }
+
+        public void ResolveSender(bool isGroupChat, System.Collections.Generic.IReadOnlyDictionary<string, string> contactNames)
+        {
+            ShowSenderName = isGroupChat && !IsFromMe;
+            if (!ShowSenderName) { SenderName = string.Empty; return; }
+            var contactName = WpBlueBubbles.Services.ContactsService.Lookup(contactNames, SenderAddress);
+            SenderName = !string.IsNullOrWhiteSpace(contactName) ? contactName
+                : !string.IsNullOrWhiteSpace(SenderServerName) ? SenderServerName
+                : !string.IsNullOrWhiteSpace(SenderAddress) ? SenderAddress : "Unknown sender";
         }
 
         public void SetAttachmentUri(string uri)

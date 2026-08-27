@@ -11,6 +11,7 @@ using Windows.System;
 using Windows.ApplicationModel.DataTransfer;
 using Windows.ApplicationModel.DataTransfer.ShareTarget;
 using Windows.ApplicationModel.Contacts;
+using Windows.ApplicationModel;
 using Windows.Foundation;
 using Windows.UI.Input;
 using Windows.Storage;
@@ -54,6 +55,7 @@ namespace WpBlueBubbles
         private int _syncTimeframeDays = 7;
         private IReadOnlyDictionary<string, string> _contactNames = new Dictionary<string, string>();
         private IReadOnlyDictionary<string, ImageSource> _contactImages = new Dictionary<string, ImageSource>();
+        private IReadOnlyDictionary<string, string> _contactTileImages = new Dictionary<string, string>();
         private ShareOperation _shareOperation;
         private StorageFile _sharedFile;
         private string _sharedText;
@@ -69,6 +71,7 @@ namespace WpBlueBubbles
         private int _chatLoadGeneration;
         private DateTimeOffset _pinMessagesToBottomUntil;
         private ServerCapabilities _serverCapabilities = new ServerCapabilities();
+        private bool _serverCapabilitiesKnown;
         private string _typingChatGuid;
         private int _availabilityGeneration;
         private string _composeService;
@@ -102,6 +105,12 @@ namespace WpBlueBubbles
             UpdateResponsiveLayout();
             SettingsStore.EnsureVersion019Defaults();
             var settings = SettingsStore.Load();
+            OledBlackToggle.IsOn = settings.OledBlack;
+            AccentColorToggle.IsOn = settings.UseAccentColor;
+            DeveloperModeToggle.IsOn = settings.DeveloperMode;
+            ApplyTheme(settings.OledBlack, settings.UseAccentColor);
+            SetPackageVersion();
+            UpdateServerDetails(settings.Address);
             ServerAddressBox.Text = settings.Address ?? string.Empty;
             ServerPasswordBox.Password = string.Empty;
             _messagesPerChat = settings.MessagesPerChat;
@@ -191,8 +200,9 @@ namespace WpBlueBubbles
                 _client = new BlueBubblesClient(address, password);
                 _chatStateSignature = null;
                 await _client.TestConnectionAsync();
-                try { _serverCapabilities = await _client.GetServerCapabilitiesAsync(); }
-                catch { _serverCapabilities = new ServerCapabilities(); }
+                try { _serverCapabilities = await _client.GetServerCapabilitiesAsync(); _serverCapabilitiesKnown = true; }
+                catch { _serverCapabilities = new ServerCapabilities(); _serverCapabilitiesKnown = false; }
+                UpdateServerDetails(address);
                 try { NavigationIdentityText.Text = await _client.GetRegisteredPhoneNumberAsync(); }
                 catch { NavigationIdentityText.Text = "BlueBubbles"; }
                 SettingsStore.Save(address, password);
@@ -233,7 +243,7 @@ namespace WpBlueBubbles
             if (loadGeneration != _chatLoadGeneration || client != _client || timeframeDays != _syncTimeframeDays) return false;
             foreach (var chat in chats)
             {
-                chat.ApplyContactData(_contactNames, _contactImages);
+                chat.ApplyContactData(_contactNames, _contactImages, _contactTileImages);
                 if (chat.IsGroupChat)
                 {
                     var iconUri = _client.GetGroupIconUri(chat.Guid);
@@ -293,6 +303,7 @@ namespace WpBlueBubbles
             {
                 var message = received[i];
                 message.UsesSmsColor = selectedChat.UsesSmsColor;
+                message.ResolveSender(selectedChat.IsGroupChat, _contactNames);
                 if (message.IsImageAttachment || message.IsVideoAttachment) message.SetAttachmentUri(client.GetAttachmentDownloadUri(message.AttachmentGuid));
                 _messages.Add(message);
                 SetSyncing(true, "Syncing messages: " + (i + 1) + " of " + total);
@@ -623,7 +634,6 @@ namespace WpBlueBubbles
             ComposeMessageBox.Text = string.Empty;
             _composeSelectedChat = null;
             _composeService = null;
-            ComposeServiceIndicator.Text = string.Empty;
             _recipientMatches.Clear();
             foreach (var chat in _allChats.Take(12)) _recipientMatches.Add(chat);
             ComposeOverlay.Visibility = Visibility.Visible;
@@ -689,7 +699,6 @@ namespace WpBlueBubbles
             if (_composeSelectedChat != null) SetComposeService(_composeSelectedChat.Service);
             else if (ParseRecipients(query).Count > 0)
             {
-                ComposeServiceIndicator.Text = _serverCapabilities.CanUsePrivateApi ? "Checking message availability..." : "Service will be selected by BlueBubbles";
                 if (_serverCapabilities.CanUsePrivateApi) _availabilityTimer.Start();
             }
             else SetComposeService(null);
@@ -717,8 +726,6 @@ namespace WpBlueBubbles
                 if (generation == _availabilityGeneration)
                 {
                     _composeService = null;
-                    ComposeServiceIndicator.Text = "Message availability unavailable";
-                    ComposeServiceIndicator.Foreground = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 173, 184, 191));
                 }
             }
         }
@@ -726,14 +733,6 @@ namespace WpBlueBubbles
         private void SetComposeService(string service)
         {
             _composeService = service;
-            if (string.IsNullOrWhiteSpace(service))
-            {
-                ComposeServiceIndicator.Text = string.Empty;
-                return;
-            }
-            var sms = string.Equals(service, "SMS", StringComparison.OrdinalIgnoreCase);
-            ComposeServiceIndicator.Text = sms ? "SMS" : (string.Equals(service, "RCS", StringComparison.OrdinalIgnoreCase) ? "RCS" : "iMessage");
-            ComposeServiceIndicator.Foreground = new SolidColorBrush(sms ? Windows.UI.Color.FromArgb(255, 76, 175, 80) : Windows.UI.Color.FromArgb(255, 74, 163, 255));
         }
 
         private static List<string> ParseRecipients(string text)
@@ -978,10 +977,61 @@ namespace WpBlueBubbles
         private void SetSettingsMode(bool connected)
         {
             SetupOnlyPanel.Visibility = connected ? Visibility.Collapsed : Visibility.Visible;
-            ConnectedSettingsHeader.Visibility = connected ? Visibility.Visible : Visibility.Collapsed;
-            ConnectedSettingsActions.Visibility = connected ? Visibility.Visible : Visibility.Collapsed;
+            ConnectedSettingsPanel.Visibility = connected ? Visibility.Visible : Visibility.Collapsed;
             SettingsBackButton.Visibility = connected ? Visibility.Visible : Visibility.Collapsed;
             SettingsHeader.Visibility = connected ? Visibility.Visible : Visibility.Collapsed;
+        }
+
+        private void ThemeToggle_Toggled(object sender, RoutedEventArgs e)
+        {
+            if (!_settingsLoaded) return;
+            SettingsStore.SaveAppearance(OledBlackToggle.IsOn, AccentColorToggle.IsOn);
+            ApplyTheme(OledBlackToggle.IsOn, AccentColorToggle.IsOn);
+        }
+
+        private void DeveloperModeToggle_Toggled(object sender, RoutedEventArgs e)
+        {
+            if (_settingsLoaded) SettingsStore.SaveDeveloperMode(DeveloperModeToggle.IsOn);
+        }
+
+        private static void ApplyTheme(bool oledBlack, bool useAccentColor)
+        {
+            var resources = Application.Current.Resources;
+            var blue = useAccentColor ? new UISettings().GetColorValue(UIColorType.Accent) : Windows.UI.Color.FromArgb(255, 14, 99, 156);
+            SetBrushColor(resources, "MessengerBlueBrush", blue);
+            SetBrushColor(resources, "AppBackgroundBrush", oledBlack ? Windows.UI.Colors.Black : Windows.UI.Color.FromArgb(255, 7, 17, 23));
+            SetBrushColor(resources, "PanelBackgroundBrush", oledBlack ? Windows.UI.Colors.Black : Windows.UI.Color.FromArgb(255, 11, 23, 30));
+            SetBrushColor(resources, "HeaderBackgroundBrush", oledBlack ? Windows.UI.Colors.Black : Windows.UI.Color.FromArgb(255, 9, 20, 27));
+        }
+
+        private static void SetBrushColor(ResourceDictionary resources, string key, Windows.UI.Color color)
+        {
+            var brush = resources[key] as SolidColorBrush;
+            if (brush != null) brush.Color = color;
+        }
+
+        private void SetPackageVersion()
+        {
+            var version = Package.Current.Id.Version;
+            PackageVersionText.Text = "v" + version.Major + "." + version.Minor + "." + version.Build + "." + version.Revision;
+        }
+
+        private void UpdateServerDetails(string address)
+        {
+            ServerDetailsText.Text = SanitizeServerAddress(address);
+            PrivateApiStatusText.Text = !_serverCapabilitiesKnown ? "Status unavailable"
+                : _serverCapabilities.CanUsePrivateApi ? "Connected"
+                : _serverCapabilities.PrivateApiEnabled ? "Enabled, helper disconnected" : "Disabled";
+        }
+
+        private static string SanitizeServerAddress(string address)
+        {
+            if (string.IsNullOrWhiteSpace(address)) return "Unavailable";
+            var value = address.Trim();
+            if (!value.StartsWith("http://", StringComparison.OrdinalIgnoreCase) && !value.StartsWith("https://", StringComparison.OrdinalIgnoreCase)) value = "http://" + value;
+            Uri uri;
+            if (!Uri.TryCreate(value, UriKind.Absolute, out uri)) return "Unavailable";
+            return uri.IsDefaultPort ? uri.Host : uri.Host + ":" + uri.Port;
         }
 
         private async void SignOut_Click(object sender, RoutedEventArgs e)
@@ -998,6 +1048,7 @@ namespace WpBlueBubbles
 
         private void SignOutLocally()
         {
+            _settingsLoaded = false;
             _messageLoadGeneration++;
             _pollTimer.Stop();
             _client?.Dispose();
@@ -1008,11 +1059,19 @@ namespace WpBlueBubbles
             ResetMessageItems();
             _chatStateSignature = null;
             SettingsStore.Clear();
+            OledBlackToggle.IsOn = false;
+            AccentColorToggle.IsOn = false;
+            DeveloperModeToggle.IsOn = false;
+            ApplyTheme(false, false);
+            _serverCapabilitiesKnown = false;
+            _serverCapabilities = new ServerCapabilities();
+            UpdateServerDetails(string.Empty);
             ServerAddressBox.Text = string.Empty;
             ServerPasswordBox.Password = string.Empty;
             SetSettingsMode(false);
             SettingsOverlay.Visibility = Visibility.Visible;
             ReturnToChats();
+            _settingsLoaded = true;
         }
 
         private void ShowChatPage(bool archived)
@@ -1120,9 +1179,31 @@ namespace WpBlueBubbles
             if (_selectedChat == null) return;
             var tileId = "chat-" + Convert.ToBase64String(Encoding.UTF8.GetBytes(_selectedChat.Guid)).TrimEnd('=').Replace('+', '-').Replace('/', '_');
             if (SecondaryTile.Exists(tileId)) { ShowStatus("This conversation is already pinned to Start.", false); return; }
-            var tile = new SecondaryTile(tileId, _selectedChat.Title, "chat=" + Uri.EscapeDataString(_selectedChat.Guid), new Uri("ms-appx:///Assets/Square150x150Logo.png"), TileSize.Square150x150);
+            var logoUri = await GetTileImageUriAsync(_selectedChat, tileId);
+            var tile = new SecondaryTile(tileId, _selectedChat.Title, "chat=" + Uri.EscapeDataString(_selectedChat.Guid), new Uri(logoUri), TileSize.Square150x150);
             tile.VisualElements.ShowNameOnSquare150x150Logo = true;
             await tile.RequestCreateAsync();
+        }
+
+        private async Task<string> GetTileImageUriAsync(ChatItem chat, string tileId)
+        {
+            if (!chat.IsGroupChat && !string.IsNullOrWhiteSpace(chat.TileImageUri)) return chat.TileImageUri;
+            if (chat.IsGroupChat && _client != null)
+            {
+                try
+                {
+                    var bytes = await _client.DownloadGroupIconAsync(chat.Guid);
+                    if (bytes != null && bytes.Length > 0)
+                    {
+                        var folder = await ApplicationData.Current.LocalFolder.CreateFolderAsync("TileIcons", CreationCollisionOption.OpenIfExists);
+                        var file = await folder.CreateFileAsync(tileId + ".jpg", CreationCollisionOption.ReplaceExisting);
+                        await FileIO.WriteBytesAsync(file, bytes);
+                        return "ms-appdata:///local/TileIcons/" + file.Name;
+                    }
+                }
+                catch { }
+            }
+            return "ms-appx:///Assets/Square150x150Logo.png";
         }
 
         private async Task DeleteSelectedChatAsync()
@@ -1181,7 +1262,8 @@ namespace WpBlueBubbles
         }
         private void MainPage_BackRequested(object sender, BackRequestedEventArgs e)
         {
-            if (QrScannerOverlay.Visibility == Visibility.Visible) { CancelQrScan_Click(this, null); e.Handled = true; }
+            if (ImageViewerOverlay.Visibility == Visibility.Visible) { CloseImageViewer(); e.Handled = true; }
+            else if (QrScannerOverlay.Visibility == Visibility.Visible) { CancelQrScan_Click(this, null); e.Handled = true; }
             else if (ComposeOverlay.Visibility == Visibility.Visible) { CloseCompose_Click(this, null); e.Handled = true; }
             else if (ContactsOverlay.Visibility == Visibility.Visible) { CloseContacts_Click(this, null); e.Handled = true; }
             else if (SettingsOverlay.Visibility == Visibility.Visible && _client != null) { SettingsOverlay.Visibility = Visibility.Collapsed; e.Handled = true; }
@@ -1249,6 +1331,7 @@ namespace WpBlueBubbles
                 ApplyContactsSearch();
                 _contactNames = ContactsService.BuildNames(contacts);
                 _contactImages = ContactsService.BuildImages(contacts);
+                _contactTileImages = ContactsService.BuildTileImages(contacts);
             }
             catch
             {
@@ -1256,6 +1339,7 @@ namespace WpBlueBubbles
                 _contacts.Clear();
                 _contactNames = new Dictionary<string, string>();
                 _contactImages = new Dictionary<string, ImageSource>();
+                _contactTileImages = new Dictionary<string, string>();
             }
         }
 
@@ -1355,6 +1439,28 @@ namespace WpBlueBubbles
         private async void Media_Opened(object sender, RoutedEventArgs e)
         {
             if (DateTimeOffset.Now <= _pinMessagesToBottomUntil) await ScrollToNewestMessageAsync();
+        }
+
+        private void Image_Tapped(object sender, TappedRoutedEventArgs e)
+        {
+            var image = sender as Image;
+            var message = image == null ? null : image.DataContext as MessageItem;
+            if (message == null || string.IsNullOrWhiteSpace(message.AttachmentUri)) return;
+            ImageViewerImage.Source = new BitmapImage(new Uri(message.AttachmentUri));
+            ImageViewerOverlay.Visibility = Visibility.Visible;
+            e.Handled = true;
+        }
+
+        private void CloseImageViewer_Tapped(object sender, TappedRoutedEventArgs e)
+        {
+            CloseImageViewer();
+            e.Handled = true;
+        }
+
+        private void CloseImageViewer()
+        {
+            ImageViewerOverlay.Visibility = Visibility.Collapsed;
+            ImageViewerImage.Source = null;
         }
 
         private void ShowStatus(string message, bool isError)

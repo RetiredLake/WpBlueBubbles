@@ -90,7 +90,7 @@ namespace WpBlueBubbles.Services
 
         public async Task<IReadOnlyList<MessageItem>> GetMessagesAsync(string chatGuid, int limit, int timeframeDays = 0)
         {
-            var route = "chat/" + Uri.EscapeDataString(chatGuid) + "/message?sort=DESC&offset=0&limit=" + limit + "&with=attachments";
+            var route = "chat/" + Uri.EscapeDataString(chatGuid) + "/message?sort=DESC&offset=0&limit=" + limit + "&with=attachments,handle";
             if (timeframeDays > 0)
             {
                 var after = DateTimeOffset.UtcNow.AddDays(-timeframeDays).ToUnixTimeMilliseconds();
@@ -262,6 +262,14 @@ namespace WpBlueBubbles.Services
         public string GetGroupIconUri(string chatGuid)
         {
             return string.IsNullOrWhiteSpace(chatGuid) ? string.Empty : BuildUrl("chat/" + Uri.EscapeDataString(chatGuid) + "/icon");
+        }
+
+        public async Task<byte[]> DownloadGroupIconAsync(string chatGuid)
+        {
+            if (string.IsNullOrWhiteSpace(chatGuid)) return null;
+            var response = await _http.GetAsync(BuildUrl("chat/" + Uri.EscapeDataString(chatGuid) + "/icon"));
+            if (!response.IsSuccessStatusCode) return null;
+            return await response.Content.ReadAsByteArrayAsync();
         }
 
         public async Task RenameGroupChatAsync(string chatGuid, string displayName)
