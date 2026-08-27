@@ -32,6 +32,19 @@ namespace WpBlueBubbles.Services
             await GetRootAsync("ping");
         }
 
+        public async Task<string> GetRegisteredPhoneNumberAsync()
+        {
+            var root = await GetRootAsync("server/info");
+            JsonObject data;
+            var source = JsonValueReader.TryObject(root, "data", out data) ? data : root;
+            foreach (var key in new[] { "phoneNumber", "phone_number", "registeredPhoneNumber", "registered_phone_number", "imessagePhoneNumber" })
+            {
+                var number = JsonValueReader.String(source, key);
+                if (!string.IsNullOrWhiteSpace(number)) return number;
+            }
+            return "BlueBubbles";
+        }
+
         public async Task<IReadOnlyList<ChatItem>> GetChatsAsync()
         {
             var body = new JsonObject
@@ -112,7 +125,7 @@ namespace WpBlueBubbles.Services
             await ReadResponseAsync(response);
         }
 
-        public async Task SendPhotoAsync(string chatGuid, StorageFile file)
+        public async Task SendAttachmentAsync(string chatGuid, StorageFile file)
         {
             var tempGuid = "temp-" + Guid.NewGuid().ToString();
             using (var stream = await file.OpenReadAsync())

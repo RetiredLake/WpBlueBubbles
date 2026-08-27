@@ -4,6 +4,7 @@ using System.Collections.ObjectModel;
 using System.Linq;
 using System.Reflection;
 using System.Text;
+using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using Windows.System;
 using Windows.ApplicationModel.DataTransfer;
@@ -22,6 +23,7 @@ using Windows.UI.Xaml;
 using Windows.UI.Xaml.Controls;
 using Windows.UI.Xaml.Input;
 using Windows.UI.Xaml.Media;
+using Windows.UI.Xaml.Documents;
 using WpBlueBubbles.Models;
 using WpBlueBubbles.Services;
 
@@ -38,6 +40,7 @@ namespace WpBlueBubbles
         private readonly List<ContactChoice> _allContacts = new List<ContactChoice>();
         private readonly DispatcherTimer _pollTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(15) };
         private readonly DispatcherTimer _qrScanTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(450) };
+        private readonly DispatcherTimer _statusTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(5) };
         private BlueBubblesClient _client;
         private QrCameraScanner _qrScanner;
         private ChatItem _selectedChat;
@@ -56,6 +59,7 @@ namespace WpBlueBubbles
         private readonly InputPane _inputPane;
         private bool _settingsLoaded;
         private string _chatStateSignature;
+        private int _messageLoadGeneration;
         private static readonly bool UseLegacyInAppSyncStatus = false;
         private static readonly bool UsePhoneSyncStatus = false;
 
@@ -69,6 +73,7 @@ namespace WpBlueBubbles
             ContactsList.ItemsSource = _contacts;
             _pollTimer.Tick += PollTimer_Tick;
             _qrScanTimer.Tick += QrScanTimer_Tick;
+            _statusTimer.Tick += StatusTimer_Tick;
             Loaded += MainPage_Loaded;
             Unloaded += MainPage_Unloaded;
             SizeChanged += MainPage_SizeChanged;
@@ -104,6 +109,7 @@ namespace WpBlueBubbles
         {
             _pollTimer.Stop();
             _qrScanTimer.Stop();
+            _statusTimer.Stop();
             _qrScanner?.Dispose();
             if (_client != null) _client.Dispose();
             SystemNavigationManager.GetForCurrentView().BackRequested -= MainPage_BackRequested;
@@ -153,7 +159,7 @@ namespace WpBlueBubbles
             }
         }
 
-        private async Task StartClientAsync(string address, string password, bool closeSettings)
+        private async Task<bool> StartClientAsync(string address, string password, bool closeSettings)
         {
             ConnectButton.IsEnabled = false;
             ConnectProgress.IsActive = true;
@@ -164,6 +170,8 @@ namespace WpBlueBubbles
                 _client = new BlueBubblesClient(address, password);
                 _chatStateSignature = null;
                 await _client.TestConnectionAsync();
+                try { NavigationIdentityText.Text = await _client.GetRegisteredPhoneNumberAsync(); }
+                catch { NavigationIdentityText.Text = "BlueBubbles"; }
                 SettingsStore.Save(address, password);
                 SettingsStore.SaveSyncOptions(_messagesPerChat, _syncTimeframeDays);
                 SetSyncing(true, "Requesting chat list from BlueBubbles...");
@@ -174,6 +182,7 @@ namespace WpBlueBubbles
                 if (closeSettings) SettingsOverlay.Visibility = Visibility.Collapsed;
                 OpenPendingActivation();
                 ShowStatus(string.Empty, false);
+                return true;
             }
             catch (Exception ex)
             {
@@ -181,6 +190,7 @@ namespace WpBlueBubbles
                 SetSettingsMode(false);
                 SettingsOverlay.Visibility = Visibility.Visible;
                 ShowStatus("Could not connect", true);
+                return false;
             }
             finally
             {
@@ -220,8 +230,13 @@ namespace WpBlueBubbles
 
         private async Task RefreshMessagesAsync(bool forceScroll)
         {
-            if (_client == null || _selectedChat == null) return;
-            var received = await _client.GetMessagesAsync(_selectedChat.Guid, _messagesPerChat, _syncTimeframeDays);
+            var client = _client;
+            var selectedChat = _selectedChat;
+            if (client == null || selectedChat == null) return;
+            var selectedGuid = selectedChat.Guid;
+            var loadGeneration = _messageLoadGeneration;
+            var received = await client.GetMessagesAsync(selectedGuid, _messagesPerChat, _syncTimeframeDays);
+            if (loadGeneration != _messageLoadGeneration || _selectedChat == null || !string.Equals(_selectedChat.Guid, selectedGuid, StringComparison.OrdinalIgnoreCase)) return;
             var priorLastGuid = _messages.Count == 0 ? null : _messages[_messages.Count - 1].Guid;
             var newLastGuid = received.Count == 0 ? null : received[received.Count - 1].Guid;
             if (!forceScroll && priorLastGuid == newLastGuid && _messages.Count == received.Count) return;
@@ -231,7 +246,7 @@ namespace WpBlueBubbles
             for (var i = 0; i < total; i++)
             {
                 var message = received[i];
-                if (message.IsImageAttachment) message.SetAttachmentUri(_client.GetAttachmentDownloadUri(message.AttachmentGuid));
+                if (message.IsImageAttachment || message.IsVideoAttachment) message.SetAttachmentUri(client.GetAttachmentDownloadUri(message.AttachmentGuid));
                 _messages.Add(message);
                 SetSyncing(true, "Syncing messages: " + (i + 1) + " of " + total);
             }
@@ -254,6 +269,8 @@ namespace WpBlueBubbles
 
         private async void ChatsList_ItemClick(object sender, ItemClickEventArgs e)
         {
+            _messageLoadGeneration++;
+            _messages.Clear();
             _selectedChat = e.ClickedItem as ChatItem;
             if (_selectedChat == null) return;
             UpdateHeaderActions(true);
@@ -279,7 +296,7 @@ namespace WpBlueBubbles
             MessageBox.IsEnabled = false;
             try
             {
-                if (_sharedFile != null) await _client.SendPhotoAsync(_selectedChat.Guid, _sharedFile);
+                if (_sharedFile != null) await _client.SendAttachmentAsync(_selectedChat.Guid, _sharedFile);
                 if (text.Length > 0) await _client.SendTextAsync(_selectedChat.Guid, text);
                 MessageBox.Text = string.Empty;
                 CompleteSharedContent();
@@ -318,21 +335,19 @@ namespace WpBlueBubbles
             ConnectError.Text = string.Empty;
         }
 
-        private async void ConnectQr_Click(object sender, RoutedEventArgs e)
+        private async Task<bool> ConnectQrPayloadAsync(string payloadText)
         {
             QrSetupPayload payload;
             string error;
-            if (!QrSetupPayload.TryParse(QrPayloadBox.Text, out payload, out error))
+            if (!QrSetupPayload.TryParse(payloadText, out payload, out error))
             {
                 ConnectError.Text = error;
-                return;
+                return false;
             }
 
             ServerAddressBox.Text = payload.Address;
             ServerPasswordBox.Password = payload.Password;
-            QrPayloadBox.Text = string.Empty;
-            QrPayloadBox.Visibility = Visibility.Collapsed;
-            await StartClientAsync(payload.Address, payload.Password, true);
+            return await StartClientAsync(payload.Address, payload.Password, true);
         }
 
         private async void ScanQr_Click(object sender, RoutedEventArgs e)
@@ -342,6 +357,9 @@ namespace WpBlueBubbles
             {
                 _qrScanner?.Dispose();
                 _qrScanner = new QrCameraScanner();
+                QrCameraPreview.Visibility = Visibility.Visible;
+                QrConnectProgress.IsActive = false;
+                QrScannerStatus.Text = "Point the camera at the BlueBubbles setup QR code";
                 QrScannerOverlay.Visibility = Visibility.Visible;
                 await _qrScanner.StartAsync(QrCameraPreview);
                 _qrScanTimer.Start();
@@ -361,9 +379,14 @@ namespace WpBlueBubbles
             {
                 var payloadText = await _qrScanner.TryReadAsync();
                 if (string.IsNullOrWhiteSpace(payloadText)) return;
-                QrPayloadBox.Text = payloadText;
-                await StopQrScannerAsync();
-                ConnectQr_Click(this, null);
+                _qrScanTimer.Stop();
+                await _qrScanner.StopAsync(QrCameraPreview);
+                QrCameraPreview.Visibility = Visibility.Collapsed;
+                QrScannerStatus.Text = "QR code found. Connecting to BlueBubbles...";
+                QrConnectProgress.IsActive = true;
+                await ConnectQrPayloadAsync(payloadText);
+                QrConnectProgress.IsActive = false;
+                QrScannerOverlay.Visibility = Visibility.Collapsed;
             }
             catch { }
             finally { _isQrScanInProgress = false; }
@@ -375,6 +398,8 @@ namespace WpBlueBubbles
         {
             _qrScanTimer.Stop();
             if (_qrScanner != null) await _qrScanner.StopAsync(QrCameraPreview);
+            QrCameraPreview.Visibility = Visibility.Visible;
+            QrConnectProgress.IsActive = false;
             QrScannerOverlay.Visibility = Visibility.Collapsed;
         }
 
@@ -387,6 +412,10 @@ namespace WpBlueBubbles
             picker.FileTypeFilter.Add(".png");
             picker.FileTypeFilter.Add(".heic");
             picker.FileTypeFilter.Add(".gif");
+            picker.FileTypeFilter.Add(".mp4");
+            picker.FileTypeFilter.Add(".m4v");
+            picker.FileTypeFilter.Add(".mov");
+            picker.FileTypeFilter.Add(".wmv");
             picker.FileTypeFilter.Add(".pdf");
             var file = await picker.PickSingleFileAsync();
             if (file == null) return;
@@ -440,6 +469,8 @@ namespace WpBlueBubbles
             if (string.IsNullOrWhiteSpace(chatGuid)) return;
             var chat = _allChats.FirstOrDefault(item => item.Guid == chatGuid);
             if (chat == null) return;
+            _messageLoadGeneration++;
+            _messages.Clear();
             _selectedChat = chat;
             UpdateHeaderActions(true);
             PageTitle.Text = chat.Title;
@@ -491,19 +522,24 @@ namespace WpBlueBubbles
         {
             if (_client == null) return;
             var message = ComposeMessageBox.Text.Trim();
-            if (string.IsNullOrWhiteSpace(message)) { ShowStatus("Write a message before sending.", true); return; }
+            if (string.IsNullOrWhiteSpace(message) && _sharedFile == null) { ShowStatus("Write a message or choose an attachment before sending.", true); return; }
             var recipient = RecipientBox.Text.Trim();
             if (_composeSelectedChat == null && string.IsNullOrWhiteSpace(recipient)) { ShowStatus("Enter a phone number or email address.", true); return; }
+            if (_composeSelectedChat == null && string.IsNullOrWhiteSpace(message)) { ShowStatus("Write a message before starting a new conversation with an attachment.", true); return; }
 
             try
             {
                 SetSyncing(true, "Sending message...");
                 ChatItem chat = _composeSelectedChat;
                 if (chat == null) chat = await _client.CreateChatAsync(recipient, message);
-                else await _client.SendTextAsync(chat.Guid, message);
+                else if (!string.IsNullOrWhiteSpace(message)) await _client.SendTextAsync(chat.Guid, message);
                 if (chat == null) throw new InvalidOperationException("BlueBubbles did not return the new conversation.");
+                if (_sharedFile != null) await _client.SendAttachmentAsync(chat.Guid, _sharedFile);
                 ComposeOverlay.Visibility = Visibility.Collapsed;
+                if (_shareOperation != null) CompleteSharedContent();
                 await RefreshChatsAsync();
+                _messageLoadGeneration++;
+                _messages.Clear();
                 _selectedChat = _allChats.FirstOrDefault(item => item.Guid == chat.Guid) ?? chat;
                 PageTitle.Text = _selectedChat.Title;
                 EmptyConversation.Visibility = Visibility.Collapsed;
@@ -795,6 +831,9 @@ namespace WpBlueBubbles
 
         private void InputPane_Showing(InputPane sender, InputPaneVisibilityEventArgs args)
         {
+            // Let Windows Phone lift the bottom composer above the on-screen keyboard.
+            args.EnsuredFocusedElementInView = false;
+            PrimaryHeader.Visibility = Visibility.Visible;
             if (_messages.Count > 0) MessagesList.ScrollIntoView(_messages[_messages.Count - 1]);
         }
         private void MainPage_BackRequested(object sender, BackRequestedEventArgs e)
@@ -962,10 +1001,43 @@ namespace WpBlueBubbles
 
         private void ShowStatus(string message, bool isError)
         {
+            _statusTimer.Stop();
             _statusIsError = isError && !string.IsNullOrWhiteSpace(message);
             StatusText.Text = message;
             StatusText.Foreground = new Windows.UI.Xaml.Media.SolidColorBrush(isError ? Windows.UI.Color.FromArgb(255, 255, 140, 130) : Windows.UI.Colors.White);
             StatusBar.Visibility = isError && !string.IsNullOrWhiteSpace(message) ? Visibility.Visible : Visibility.Collapsed;
+            if (_statusIsError) _statusTimer.Start();
+        }
+
+        private void StatusTimer_Tick(object sender, object e)
+        {
+            _statusTimer.Stop();
+            ShowStatus(string.Empty, false);
+        }
+
+        private void MessageText_Loaded(object sender, RoutedEventArgs e)
+        {
+            var block = sender as RichTextBlock;
+            var message = block?.DataContext as MessageItem;
+            if (block == null || message == null) return;
+            var paragraph = new Paragraph();
+            var index = 0;
+            foreach (Match match in Regex.Matches(message.Text ?? string.Empty, @"https?://[^\s]+", RegexOptions.IgnoreCase))
+            {
+                if (match.Index > index) paragraph.Inlines.Add(new Run { Text = message.Text.Substring(index, match.Index - index) });
+                Uri uri;
+                if (Uri.TryCreate(match.Value, UriKind.Absolute, out uri))
+                {
+                    var link = new Hyperlink { NavigateUri = uri };
+                    link.Inlines.Add(new Run { Text = match.Value });
+                    paragraph.Inlines.Add(link);
+                }
+                else paragraph.Inlines.Add(new Run { Text = match.Value });
+                index = match.Index + match.Length;
+            }
+            if (index < (message.Text ?? string.Empty).Length) paragraph.Inlines.Add(new Run { Text = message.Text.Substring(index) });
+            block.Blocks.Clear();
+            block.Blocks.Add(paragraph);
         }
     }
 }

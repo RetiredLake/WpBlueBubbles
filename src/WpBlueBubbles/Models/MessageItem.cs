@@ -18,8 +18,9 @@ namespace WpBlueBubbles.Models
         public string AttachmentMimeType { get; set; }
         public string AttachmentUri { get; set; }
         public bool IsImageAttachment { get; set; }
+        public bool IsVideoAttachment { get; set; }
         public bool HasText { get { return !string.IsNullOrWhiteSpace(Text); } }
-        public bool HasNonImageAttachment { get { return HasAttachments && !IsImageAttachment; } }
+        public bool HasNonPreviewAttachment { get { return HasAttachments && !IsImageAttachment && !IsVideoAttachment; } }
         public event PropertyChangedEventHandler PropertyChanged;
         public HorizontalAlignment BubbleAlignment { get { return IsFromMe ? HorizontalAlignment.Right : HorizontalAlignment.Left; } }
         public Brush BubbleBrush { get { return new SolidColorBrush(IsFromMe ? Windows.UI.Color.FromArgb(255, 14, 99, 156) : Windows.UI.Color.FromArgb(255, 39, 52, 60)); } }
@@ -43,7 +44,8 @@ namespace WpBlueBubbles.Models
                 attachmentName = JsonValueReader.String(attachment, "transferName");
             }
             var isImage = mimeType.StartsWith("image/", System.StringComparison.OrdinalIgnoreCase) || uti.IndexOf("image", System.StringComparison.OrdinalIgnoreCase) >= 0 || uti.IndexOf("jpeg", System.StringComparison.OrdinalIgnoreCase) >= 0 || uti.IndexOf("png", System.StringComparison.OrdinalIgnoreCase) >= 0 || uti.IndexOf("heic", System.StringComparison.OrdinalIgnoreCase) >= 0;
-            if (string.IsNullOrWhiteSpace(text) && hasAttachments && !isImage) text = "Attachment";
+            var isVideo = mimeType.StartsWith("video/", System.StringComparison.OrdinalIgnoreCase) || uti.IndexOf("video", System.StringComparison.OrdinalIgnoreCase) >= 0 || uti.IndexOf("movie", System.StringComparison.OrdinalIgnoreCase) >= 0 || uti.IndexOf("quicktime", System.StringComparison.OrdinalIgnoreCase) >= 0;
+            if (string.IsNullOrWhiteSpace(text) && hasAttachments && !isImage && !isVideo) text = "Attachment";
             return new MessageItem
             {
                 Guid = JsonValueReader.String(json, "guid"),
@@ -54,6 +56,7 @@ namespace WpBlueBubbles.Models
                 AttachmentGuid = attachmentGuid,
                 AttachmentMimeType = mimeType,
                 IsImageAttachment = isImage,
+                IsVideoAttachment = isVideo,
                 TimeLabel = DateLabels.FromMilliseconds(timestamp).ToString("g"),
                 IsFromMe = JsonValueReader.Boolean(json, "isFromMe")
             };
@@ -69,10 +72,12 @@ namespace WpBlueBubbles.Models
         {
             AttachmentUri = string.Empty;
             IsImageAttachment = false;
+            IsVideoAttachment = false;
             AttachmentLabel = "Image unavailable";
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(AttachmentUri)));
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsImageAttachment)));
-            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(HasNonImageAttachment)));
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsVideoAttachment)));
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(HasNonPreviewAttachment)));
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(AttachmentLabel)));
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(HasText)));
         }

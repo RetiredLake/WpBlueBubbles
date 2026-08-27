@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <Package xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10" xmlns:mp="http://schemas.microsoft.com/appx/2014/phone/manifest" xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10" xmlns:m2="http://schemas.microsoft.com/appx/2013/manifest" IgnorableNamespaces="uap mp m2">
-  <Identity Name="WpBlueBubbles" Publisher="CN=retiredlake" Version="0.1.9.0" />
+  <Identity Name="WpBlueBubbles" Publisher="CN=retiredlake" Version="0.1.9.6" />
   <mp:PhoneIdentity PhoneProductId="79f60ed4-a1a8-4791-bafd-03dd8f46c983" PhonePublisherId="00000000-0000-0000-0000-000000000000" />
   <Properties>
     <DisplayName>BlueBubbles</DisplayName><PublisherDisplayName>retiredlake</PublisherDisplayName><Logo>Assets\StoreLogo.png</Logo>
@@ -21,6 +21,10 @@
               <uap:FileType>.jpeg</uap:FileType>
               <uap:FileType>.png</uap:FileType>
               <uap:FileType>.gif</uap:FileType>
+              <uap:FileType>.mp4</uap:FileType>
+              <uap:FileType>.m4v</uap:FileType>
+              <uap:FileType>.mov</uap:FileType>
+              <uap:FileType>.wmv</uap:FileType>
             </uap:SupportedFileTypes>
             <uap:DataFormat>Text</uap:DataFormat>
             <uap:DataFormat>StorageItems</uap:DataFormat>
