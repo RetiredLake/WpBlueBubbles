@@ -94,7 +94,7 @@
                 <ListView.ItemTemplate>
                   <DataTemplate>
                     <StackPanel HorizontalAlignment="{Binding BubbleAlignment}" MaxWidth="520" Margin="0,4">
-                      <Border Background="{Binding BubbleBrush}" CornerRadius="6" Padding="12,8"><StackPanel><Image Source="{Binding AttachmentUri}" Visibility="{Binding IsImageAttachment, Converter={StaticResource BooleanToVisibilityConverter}}" MaxWidth="300" MaxHeight="260" Stretch="Uniform" ImageFailed="AttachmentImage_Failed"/><MediaElement Source="{Binding AttachmentUri}" Visibility="{Binding IsVideoAttachment, Converter={StaticResource BooleanToVisibilityConverter}}" AreTransportControlsEnabled="True" AutoPlay="False" MaxWidth="300" MaxHeight="260"/><RichTextBlock Visibility="{Binding HasText, Converter={StaticResource BooleanToVisibilityConverter}}" FontSize="16" TextWrapping="Wrap" Holding="Message_Holding" Loaded="MessageText_Loaded" DataContextChanged="MessageText_DataContextChanged" Margin="0,5,0,0"/><TextBlock Text="{Binding AttachmentLabel}" Visibility="{Binding HasNonPreviewAttachment, Converter={StaticResource BooleanToVisibilityConverter}}" Foreground="{StaticResource MutedTextBrush}" FontSize="12" Margin="0,5,0,0"/></StackPanel></Border>
+                      <Border Background="{Binding BubbleBrush}" CornerRadius="6" Padding="12,8"><StackPanel><Image Source="{Binding AttachmentUri}" Visibility="{Binding IsImageAttachment, Converter={StaticResource BooleanToVisibilityConverter}}" MaxWidth="300" MaxHeight="260" Stretch="Uniform" ImageFailed="AttachmentImage_Failed" Holding="Media_Holding"/><Grid Holding="Media_Holding"><MediaElement Source="{Binding AttachmentUri}" Visibility="{Binding IsVideoAttachment, Converter={StaticResource BooleanToVisibilityConverter}}" AreTransportControlsEnabled="True" AutoPlay="False" MaxWidth="300" MaxHeight="260"/></Grid><RichTextBlock Visibility="{Binding HasText, Converter={StaticResource BooleanToVisibilityConverter}}" FontSize="16" TextWrapping="Wrap" Holding="Message_Holding" Loaded="MessageText_Loaded" DataContextChanged="MessageText_DataContextChanged" Margin="0,5,0,0"/><TextBlock Text="{Binding AttachmentLabel}" Visibility="{Binding HasNonPreviewAttachment, Converter={StaticResource BooleanToVisibilityConverter}}" Foreground="{StaticResource MutedTextBrush}" FontSize="12" Margin="0,5,0,0"/></StackPanel></Border>
                       <TextBlock Text="{Binding TimeLabel}" Foreground="{StaticResource MutedTextBrush}" FontSize="11" HorizontalAlignment="Right" Margin="0,3,2,0"/>
                     </StackPanel>
                   </DataTemplate>
@@ -164,7 +164,7 @@
           <StackPanel Margin="0,26,0,0">
           <TextBlock Text="Credits" FontSize="16" Foreground="{StaticResource MutedTextBrush}"/>
             <HyperlinkButton Content="developed by retiredlake.com" NavigateUri="https://retiredlake.com" HorizontalAlignment="Left" Padding="0"/>
-            <TextBlock Text="v0.1.9.7" Foreground="{StaticResource MutedTextBrush}" FontSize="14" Margin="0,2,0,0"/>
+            <TextBlock Text="v0.1.9.8" Foreground="{StaticResource MutedTextBrush}" FontSize="14" Margin="0,2,0,0"/>
           </StackPanel>
           <TextBlock x:Name="ConnectError" Foreground="#FFFF8C82" TextWrapping="Wrap"/>
         </StackPanel>

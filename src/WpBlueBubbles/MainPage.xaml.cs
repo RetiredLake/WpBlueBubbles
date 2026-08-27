@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Text;
@@ -263,7 +264,18 @@ namespace WpBlueBubbles
                 _messages.Add(message);
                 SetSyncing(true, "Syncing messages: " + (i + 1) + " of " + total);
             }
-            if (_messages.Count > 0) MessagesList.ScrollIntoView(_messages[_messages.Count - 1]);
+            await ScrollToNewestMessageAsync();
+        }
+
+        private async Task ScrollToNewestMessageAsync()
+        {
+            if (_messages.Count == 0) return;
+            var newestMessage = _messages[_messages.Count - 1];
+            await Dispatcher.RunAsync(CoreDispatcherPriority.Low, () =>
+            {
+                MessagesList.UpdateLayout();
+                MessagesList.ScrollIntoView(newestMessage, ScrollIntoViewAlignment.Default);
+            });
         }
 
         private async void PollTimer_Tick(object sender, object e)
@@ -450,6 +462,50 @@ namespace WpBlueBubbles
             var data = new DataPackage();
             data.SetText(message.Text);
             Clipboard.SetContent(data);
+        }
+
+        private async void Media_Holding(object sender, HoldingRoutedEventArgs e)
+        {
+            if (e.HoldingState != HoldingState.Started) return;
+            e.Handled = true;
+            var element = sender as FrameworkElement;
+            var message = element?.DataContext as MessageItem;
+            if (_client == null || message == null || string.IsNullOrWhiteSpace(message.AttachmentGuid)) return;
+
+            var saveCommand = new UICommand("Save");
+            var menu = new PopupMenu();
+            menu.Commands.Add(saveCommand);
+            var point = element.TransformToVisual(null).TransformPoint(new Point());
+            var chosen = await menu.ShowForSelectionAsync(new Rect(point, element.RenderSize));
+            if (chosen != saveCommand) return;
+
+            try
+            {
+                var bytes = await _client.DownloadAttachmentAsync(message.AttachmentGuid);
+                var file = await KnownFolders.PicturesLibrary.CreateFileAsync(GetMediaFileName(message), CreationCollisionOption.GenerateUniqueName);
+                await FileIO.WriteBytesAsync(file, bytes);
+                await new MessageDialog("Saved to Pictures.", "BlueBubbles").ShowAsync();
+            }
+            catch (Exception ex)
+            {
+                ShowStatus("Could not save media: " + ex.Message, true);
+            }
+        }
+
+        private static string GetMediaFileName(MessageItem message)
+        {
+            var fileName = message.AttachmentLabel;
+            if (string.IsNullOrWhiteSpace(fileName) || string.Equals(fileName, "Attachment available", StringComparison.OrdinalIgnoreCase))
+            {
+                var extension = message.IsVideoAttachment ? ".mp4" : ".jpg";
+                if (string.Equals(message.AttachmentMimeType, "image/png", StringComparison.OrdinalIgnoreCase)) extension = ".png";
+                else if (string.Equals(message.AttachmentMimeType, "image/gif", StringComparison.OrdinalIgnoreCase)) extension = ".gif";
+                else if (string.Equals(message.AttachmentMimeType, "image/heic", StringComparison.OrdinalIgnoreCase)) extension = ".heic";
+                else if (message.AttachmentMimeType.IndexOf("quicktime", StringComparison.OrdinalIgnoreCase) >= 0) extension = ".mov";
+                fileName = "BlueBubbles-" + (string.IsNullOrWhiteSpace(message.Guid) ? Guid.NewGuid().ToString("N") : message.Guid) + extension;
+            }
+            foreach (var invalid in Path.GetInvalidFileNameChars()) fileName = fileName.Replace(invalid, '_');
+            return fileName;
         }
 
         private void Compose_Click(object sender, RoutedEventArgs e)

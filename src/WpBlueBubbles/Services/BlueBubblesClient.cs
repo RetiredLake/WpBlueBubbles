@@ -87,6 +87,14 @@ namespace WpBlueBubbles.Services
             return string.IsNullOrWhiteSpace(attachmentGuid) ? string.Empty : BuildUrl("attachment/" + Uri.EscapeDataString(attachmentGuid) + "/download");
         }
 
+        public async Task<byte[]> DownloadAttachmentAsync(string attachmentGuid)
+        {
+            if (string.IsNullOrWhiteSpace(attachmentGuid)) throw new ArgumentException("Attachment is required.");
+            var response = await _http.GetAsync(BuildUrl("attachment/" + Uri.EscapeDataString(attachmentGuid) + "/download"));
+            if (!response.IsSuccessStatusCode) throw new InvalidOperationException("Could not download the attachment (HTTP " + (int)response.StatusCode + ").");
+            return await response.Content.ReadAsByteArrayAsync();
+        }
+
         public async Task<MessageItem> SendTextAsync(string chatGuid, string text)
         {
             var body = new JsonObject
