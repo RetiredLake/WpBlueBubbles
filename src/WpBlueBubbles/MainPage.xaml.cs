@@ -79,6 +79,7 @@ namespace WpBlueBubbles
             SizeChanged += MainPage_SizeChanged;
             SystemNavigationManager.GetForCurrentView().BackRequested += MainPage_BackRequested;
             _inputPane.Showing += InputPane_Showing;
+            _inputPane.Hiding += InputPane_Hiding;
         }
 
         private async void MainPage_Loaded(object sender, RoutedEventArgs e)
@@ -114,6 +115,7 @@ namespace WpBlueBubbles
             if (_client != null) _client.Dispose();
             SystemNavigationManager.GetForCurrentView().BackRequested -= MainPage_BackRequested;
             _inputPane.Showing -= InputPane_Showing;
+            _inputPane.Hiding -= InputPane_Hiding;
         }
 
         private void MainPage_SizeChanged(object sender, SizeChangedEventArgs e) { UpdateResponsiveLayout(); }
@@ -161,6 +163,8 @@ namespace WpBlueBubbles
 
         private async Task<bool> StartClientAsync(string address, string password, bool closeSettings)
         {
+            _messageLoadGeneration++;
+            _messages.Clear();
             ConnectButton.IsEnabled = false;
             ConnectProgress.IsActive = true;
             ConnectError.Text = string.Empty;
@@ -234,7 +238,8 @@ namespace WpBlueBubbles
             var selectedChat = _selectedChat;
             if (client == null || selectedChat == null) return;
             var selectedGuid = selectedChat.Guid;
-            var loadGeneration = _messageLoadGeneration;
+            // A newer refresh supersedes every older request, even for the same chat.
+            var loadGeneration = ++_messageLoadGeneration;
             var received = await client.GetMessagesAsync(selectedGuid, _messagesPerChat, _syncTimeframeDays);
             if (loadGeneration != _messageLoadGeneration || _selectedChat == null || !string.Equals(_selectedChat.Guid, selectedGuid, StringComparison.OrdinalIgnoreCase)) return;
             var priorLastGuid = _messages.Count == 0 ? null : _messages[_messages.Count - 1].Guid;
@@ -733,6 +738,7 @@ namespace WpBlueBubbles
 
         private void SignOutLocally()
         {
+            _messageLoadGeneration++;
             _pollTimer.Stop();
             _client?.Dispose();
             _client = null;
@@ -752,6 +758,7 @@ namespace WpBlueBubbles
         private void ShowChatPage(bool archived)
         {
             NavigationSplitView.IsPaneOpen = false;
+            _messageLoadGeneration++;
             _showArchived = archived;
             PageTitle.Text = archived ? "Archived" : "Chats";
             ApplyChatSearch();
@@ -831,10 +838,16 @@ namespace WpBlueBubbles
 
         private void InputPane_Showing(InputPane sender, InputPaneVisibilityEventArgs args)
         {
-            // Let Windows Phone lift the bottom composer above the on-screen keyboard.
-            args.EnsuredFocusedElementInView = false;
+            // Reserve the keyboard's space ourselves so both the header and composer remain visible.
+            args.EnsuredFocusedElementInView = true;
+            RootGrid.Margin = new Thickness(0, 0, 0, Math.Max(0, args.OccludedRect.Height));
             PrimaryHeader.Visibility = Visibility.Visible;
             if (_messages.Count > 0) MessagesList.ScrollIntoView(_messages[_messages.Count - 1]);
+        }
+
+        private void InputPane_Hiding(InputPane sender, InputPaneVisibilityEventArgs args)
+        {
+            RootGrid.Margin = new Thickness(0);
         }
         private void MainPage_BackRequested(object sender, BackRequestedEventArgs e)
         {
