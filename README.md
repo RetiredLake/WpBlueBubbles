@@ -85,6 +85,10 @@ clients takes priority until notifications are complete.
 The current release is **v0.2.0.0 Beta**. Builds from v0.1.6.0 through v0.1.9.9
 are published as legacy betas for testing and historical preservation.
 
+The current v0.2.0.0 package includes the state-storage hotfix built from the
+`releases/v0.2.0a` output. Growing per-chat state is file-backed rather than stored
+in the size-limited application settings container.
+
 Developed by [retiredlake.com](https://retiredlake.com/).
 
 ## License

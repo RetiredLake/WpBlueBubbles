@@ -105,7 +105,9 @@ namespace WpBlueBubbles
         {
             try
             {
-                ApplicationData.Current.LocalSettings.Values["StartupError"] = exception.ToString();
+                System.IO.File.WriteAllText(
+                    System.IO.Path.Combine(ApplicationData.Current.LocalFolder.Path, "startup-error.txt"),
+                    exception.ToString());
             }
             catch { }
         }

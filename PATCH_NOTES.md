@@ -5,6 +5,8 @@ builds and may contain bugs fixed by later releases.
 
 ## v0.2.0.0 Beta
 
+- Hotfix: moved growing unread/message state out of `ApplicationDataContainer.Values` and into atomic file-backed storage to prevent the settings size-limit crash.
+- Hotfix: pruned stale per-chat state and moved startup diagnostics out of application settings.
 - Added Blue iMessage/RCS and green SMS service styling.
 - Added capability-gated iMessage availability checks.
 - Added typing start and inactivity stop behavior.
