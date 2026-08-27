@@ -229,12 +229,15 @@ namespace WpBlueBubbles
                 SettingsStore.SaveSyncOptions(_messagesPerChat, _syncTimeframeDays);
                 SetSyncing(true, "Requesting chat list from BlueBubbles...");
                 await LoadContactsAsync();
-                await RefreshChatsAsync();
+                Exception initialSyncError = null;
+                try { await RefreshChatsAsync(); }
+                catch (Exception ex) { initialSyncError = ex; }
                 _pollTimer.Start();
                 SetSettingsMode(true);
                 if (closeSettings) SettingsOverlay.Visibility = Visibility.Collapsed;
                 OpenPendingActivation();
-                ShowStatus(string.Empty, false);
+                if (initialSyncError == null) ShowStatus(string.Empty, false);
+                else ShowStatus(FriendlyError(initialSyncError, "load chats") + " BlueBubbles will retry automatically.", true);
                 return true;
             }
             catch (Exception ex)
@@ -324,7 +327,7 @@ namespace WpBlueBubbles
                 var message = received[i];
                 message.UsesSmsColor = selectedChat.UsesSmsColor;
                 message.ResolveSender(selectedChat.IsGroupChat, _contactNames);
-                if (message.IsImageAttachment || message.IsVideoAttachment) await PrepareMediaAsync(client, message);
+                if (message.IsImageAttachment || message.IsVideoAttachment) message.SetAttachmentUri(client.GetAttachmentDownloadUri(message.AttachmentGuid));
                 _messages.Add(message);
                 SetSyncing(true, "Syncing messages: " + (i + 1) + " of " + total);
             }
@@ -602,37 +605,6 @@ namespace WpBlueBubbles
             _sharedFiles.Clear();
             _sharedFiles.AddRange(files);
             StageSharedContentInComposer();
-        }
-
-        private async Task PrepareMediaAsync(BlueBubblesClient client, MessageItem message)
-        {
-            try
-            {
-                var folder = await ApplicationData.Current.TemporaryFolder.CreateFolderAsync("MessageMedia", CreationCollisionOption.OpenIfExists);
-                var extension = Path.GetExtension(message.AttachmentLabel);
-                if (string.IsNullOrWhiteSpace(extension)) extension = GetMediaExtension(message);
-                var cacheKey = !string.IsNullOrWhiteSpace(message.AttachmentGuid) ? message.AttachmentGuid : !string.IsNullOrWhiteSpace(message.Guid) ? message.Guid : Guid.NewGuid().ToString("N");
-                var safeGuid = Regex.Replace(cacheKey, "[^A-Za-z0-9_-]", "_");
-                var file = await folder.CreateFileAsync(safeGuid + extension, CreationCollisionOption.OpenIfExists);
-                var properties = await file.GetBasicPropertiesAsync();
-                if (properties.Size == 0) await FileIO.WriteBytesAsync(file, await client.DownloadAttachmentAsync(message.AttachmentGuid));
-                message.SetAttachmentUri("ms-appdata:///temp/MessageMedia/" + file.Name);
-            }
-            catch
-            {
-                message.MarkAttachmentFailed();
-            }
-        }
-
-        private static string GetMediaExtension(MessageItem message)
-        {
-            var mime = message.AttachmentMimeType ?? string.Empty;
-            if (mime.IndexOf("png", StringComparison.OrdinalIgnoreCase) >= 0) return ".png";
-            if (mime.IndexOf("gif", StringComparison.OrdinalIgnoreCase) >= 0) return ".gif";
-            if (mime.IndexOf("heic", StringComparison.OrdinalIgnoreCase) >= 0) return ".heic";
-            if (mime.IndexOf("quicktime", StringComparison.OrdinalIgnoreCase) >= 0) return ".mov";
-            if (message.IsVideoAttachment) return ".mp4";
-            return ".jpg";
         }
 
         private async void Message_Holding(object sender, HoldingRoutedEventArgs e)

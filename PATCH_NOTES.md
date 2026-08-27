@@ -3,6 +3,15 @@
 All releases are beta software. Versions before v0.2.0.0 are retained as legacy
 builds and may contain bugs fixed by later releases.
 
+## v0.2.1.7 Beta
+
+- Restored the pre-v0.2.1.5 media path: chats load attachment metadata immediately and visible media streams from BlueBubbles on demand.
+- Removed eager sequential media downloads and local media conversion from chat loading.
+- Added bounded retries to safe server reads and chat-list queries without retrying sends, deletes, renames, or other mutations.
+- Reused one server-info response during connection setup instead of issuing duplicate requests.
+- Made a successful authenticated connection survive an initial chat-sync failure; normal polling retries the sync automatically.
+- Kept manual Save media as an explicit on-demand download.
+
 ## v0.2.1.6 Beta
 
 - Anchored the newest message above the Lumia keyboard after its final layout pass.

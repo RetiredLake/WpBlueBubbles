@@ -18,6 +18,7 @@ namespace WpBlueBubbles.Services
         private readonly string _apiRoot;
         private readonly string _serverRoot;
         private readonly string _password;
+        private JsonObject _serverInfoSource;
 
         public BlueBubblesClient(string address, string password)
         {
@@ -38,9 +39,7 @@ namespace WpBlueBubbles.Services
 
         public async Task<ServerCapabilities> GetServerCapabilitiesAsync()
         {
-            var root = await GetRootAsync("server/info");
-            JsonObject data;
-            var source = JsonValueReader.TryObject(root, "data", out data) ? data : root;
+            var source = await GetServerInfoSourceAsync();
             return new ServerCapabilities
             {
                 PrivateApiEnabled = JsonValueReader.Boolean(source, "private_api"),
@@ -50,9 +49,7 @@ namespace WpBlueBubbles.Services
 
         public async Task<string> GetRegisteredPhoneNumberAsync()
         {
-            var root = await GetRootAsync("server/info");
-            JsonObject data;
-            var source = JsonValueReader.TryObject(root, "data", out data) ? data : root;
+            var source = await GetServerInfoSourceAsync();
             foreach (var key in new[] { "phoneNumber", "phone_number", "registeredPhoneNumber", "registered_phone_number", "imessagePhoneNumber" })
             {
                 var number = JsonValueReader.String(source, key);
@@ -75,7 +72,7 @@ namespace WpBlueBubbles.Services
                     ["limit"] = JsonValue.CreateNumberValue(pageSize),
                     ["sort"] = JsonValue.CreateStringValue("lastmessage")
                 };
-                var root = await PostRootAsync("chat/query", body);
+                var root = await PostRootAsync("chat/query", body, true);
                 var data = GetDataArray(root);
                 foreach (var value in data) if (value.ValueType == JsonValueType.Object) result.Add(ChatItem.FromJson(value.GetObject()));
                 if (data.Count < pageSize) break;
@@ -320,17 +317,71 @@ namespace WpBlueBubbles.Services
             return _apiRoot + "/" + route + separator + Uri.EscapeDataString(_password);
         }
 
-        private async Task<JsonObject> GetRootAsync(string route)
+        private async Task<JsonObject> GetServerInfoSourceAsync()
         {
-            var response = await _http.GetAsync(BuildUrl(route));
-            return await ReadResponseAsync(response);
+            if (_serverInfoSource != null) return _serverInfoSource;
+            var root = await GetRootAsync("server/info");
+            JsonObject data;
+            _serverInfoSource = JsonValueReader.TryObject(root, "data", out data) ? data : root;
+            return _serverInfoSource;
         }
 
-        private async Task<JsonObject> PostRootAsync(string route, JsonObject body)
+        private async Task<JsonObject> GetRootAsync(string route)
         {
-            var content = new StringContent(body.Stringify(), Encoding.UTF8, "application/json");
-            var response = await _http.PostAsync(BuildUrl(route), content);
-            return await ReadResponseAsync(response);
+            for (var attempt = 0; ; attempt++)
+            {
+                try
+                {
+                    using (var response = await _http.GetAsync(BuildUrl(route)))
+                    {
+                        if (attempt < 2 && IsTransientStatus(response.StatusCode))
+                        {
+                            await Task.Delay(300 * (attempt + 1));
+                            continue;
+                        }
+                        return await ReadResponseAsync(response);
+                    }
+                }
+                catch (Exception ex) when (attempt < 2 && IsTransientTransportError(ex))
+                {
+                    await Task.Delay(300 * (attempt + 1));
+                }
+            }
+        }
+
+        private async Task<JsonObject> PostRootAsync(string route, JsonObject body, bool retryTransient = false)
+        {
+            for (var attempt = 0; ; attempt++)
+            {
+                try
+                {
+                    using (var content = new StringContent(body.Stringify(), Encoding.UTF8, "application/json"))
+                    using (var response = await _http.PostAsync(BuildUrl(route), content))
+                    {
+                        if (retryTransient && attempt < 2 && IsTransientStatus(response.StatusCode))
+                        {
+                            await Task.Delay(300 * (attempt + 1));
+                            continue;
+                        }
+                        return await ReadResponseAsync(response);
+                    }
+                }
+                catch (Exception ex) when (retryTransient && attempt < 2 && IsTransientTransportError(ex))
+                {
+                    await Task.Delay(300 * (attempt + 1));
+                }
+            }
+        }
+
+        private static bool IsTransientTransportError(Exception exception)
+        {
+            return exception is HttpRequestException || exception is TaskCanceledException;
+        }
+
+        private static bool IsTransientStatus(System.Net.HttpStatusCode status)
+        {
+            var code = (int)status;
+            return code == 408 || code == 429 || code >= 500;
         }
 
         private async Task<JsonObject> PutRootAsync(string route, JsonObject body)
