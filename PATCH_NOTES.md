@@ -3,6 +3,13 @@
 All releases are beta software. Versions before v0.2.0.0 are retained as legacy
 builds and may contain bugs fixed by later releases.
 
+## v0.2.0.1 Beta
+
+- Matched the official BlueBubbles full-sync behavior by hiding chats whose latest message falls outside the selected timeframe.
+- Made the server's chat-level `hasUnreadMessage` value authoritative so read state follows the Mac.
+- Added paginated chat loading beyond the previous 1,000-chat ceiling.
+- Prevented stale overlapping chat refreshes from replacing a newer timeframe result.
+
 ## v0.2.0.0 Beta
 
 - Hotfix: moved growing unread/message state out of `ApplicationDataContainer.Values` and into atomic file-backed storage to prevent the settings size-limit crash.

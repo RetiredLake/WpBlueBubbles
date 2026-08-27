@@ -82,12 +82,13 @@ clients takes priority until notifications are complete.
 
 ## Status
 
-The current release is **v0.2.0.0 Beta**. Builds from v0.1.6.0 through v0.1.9.9
+The current release is **v0.2.0.1 Beta**. Builds from v0.1.6.0 through v0.1.9.9
 are published as legacy betas for testing and historical preservation.
 
-The current v0.2.0.0 package includes the state-storage hotfix built from the
-`releases/v0.2.0a` output. Growing per-chat state is file-backed rather than stored
-in the size-limited application settings container.
+The v0.2 series includes the state-storage hotfix first rebuilt under
+`releases/v0.2.0a`. Growing per-chat state is file-backed rather than stored in
+the size-limited application settings container. v0.2.0.1 additionally aligns
+timeframe filtering and unread state with the official BlueBubbles client.
 
 Developed by [retiredlake.com](https://retiredlake.com/).
 

@@ -72,7 +72,7 @@ namespace WpBlueBubbles.Services
             {
                 using (var client = new BlueBubblesClient(settings.Address, settings.Password))
                 {
-                    var chats = await client.GetChatsAsync();
+                    var chats = await client.GetChatsAsync(settings.SyncTimeframeDays);
                     await ObserveChatsAsync(chats, true);
                 }
                 Windows.Storage.ApplicationData.Current.LocalSettings.Values[LastSyncKey] = DateTimeOffset.UtcNow.ToString("o");

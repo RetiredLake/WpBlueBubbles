@@ -66,6 +66,7 @@ namespace WpBlueBubbles
         private bool _settingsLoaded;
         private string _chatStateSignature;
         private int _messageLoadGeneration;
+        private int _chatLoadGeneration;
         private DateTimeOffset _pinMessagesToBottomUntil;
         private ServerCapabilities _serverCapabilities = new ServerCapabilities();
         private string _typingChatGuid;
@@ -224,8 +225,12 @@ namespace WpBlueBubbles
 
         private async Task<bool> RefreshChatsAsync()
         {
-            if (_client == null) return false;
-            var chats = await _client.GetChatsAsync();
+            var client = _client;
+            if (client == null) return false;
+            var timeframeDays = _syncTimeframeDays;
+            var loadGeneration = ++_chatLoadGeneration;
+            var chats = await client.GetChatsAsync(timeframeDays);
+            if (loadGeneration != _chatLoadGeneration || client != _client || timeframeDays != _syncTimeframeDays) return false;
             foreach (var chat in chats)
             {
                 chat.ApplyContactData(_contactNames, _contactImages);
@@ -874,6 +879,7 @@ namespace WpBlueBubbles
             if (item?.Tag != null) _syncTimeframeDays = int.Parse(item.Tag.ToString());
             SettingsStore.SaveSyncOptions(_messagesPerChat, _syncTimeframeDays);
             UpdateSyncDescription();
+            await RefreshChatsAsync();
             if (_selectedChat != null) await RefreshMessagesAsync(true);
         }
 

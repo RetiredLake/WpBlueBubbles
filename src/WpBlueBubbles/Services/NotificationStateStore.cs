@@ -103,7 +103,7 @@ namespace WpBlueBubbles.Services
             foreach (var chat in chats)
             {
                 NotificationChatState prior;
-                if (previousStates.TryGetValue(chat.Guid, out prior) && string.Equals(prior.MessageGuid, chat.LastMessageGuid) && !prior.IsUnread)
+                if (!chat.HasAuthoritativeUnreadState && previousStates.TryGetValue(chat.Guid, out prior) && string.Equals(prior.MessageGuid, chat.LastMessageGuid) && !prior.IsUnread)
                 {
                     chat.IsUnread = false;
                 }

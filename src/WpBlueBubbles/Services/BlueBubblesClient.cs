@@ -61,19 +61,30 @@ namespace WpBlueBubbles.Services
             return "BlueBubbles";
         }
 
-        public async Task<IReadOnlyList<ChatItem>> GetChatsAsync()
+        public async Task<IReadOnlyList<ChatItem>> GetChatsAsync(int timeframeDays = 0)
         {
-            var body = new JsonObject
-            {
-                ["with"] = new JsonArray { JsonValue.CreateStringValue("participants"), JsonValue.CreateStringValue("lastmessage") },
-                ["offset"] = JsonValue.CreateNumberValue(0),
-                ["limit"] = JsonValue.CreateNumberValue(1000),
-                ["sort"] = JsonValue.CreateStringValue("lastmessage")
-            };
-            var root = await PostRootAsync("chat/query", body);
-            var data = GetDataArray(root);
+            const int pageSize = 200;
+            const int maximumChats = 10000;
             var result = new List<ChatItem>();
-            foreach (var value in data) if (value.ValueType == JsonValueType.Object) result.Add(ChatItem.FromJson(value.GetObject()));
+            for (var offset = 0; offset < maximumChats; offset += pageSize)
+            {
+                var body = new JsonObject
+                {
+                    ["with"] = new JsonArray { JsonValue.CreateStringValue("participants"), JsonValue.CreateStringValue("lastmessage") },
+                    ["offset"] = JsonValue.CreateNumberValue(offset),
+                    ["limit"] = JsonValue.CreateNumberValue(pageSize),
+                    ["sort"] = JsonValue.CreateStringValue("lastmessage")
+                };
+                var root = await PostRootAsync("chat/query", body);
+                var data = GetDataArray(root);
+                foreach (var value in data) if (value.ValueType == JsonValueType.Object) result.Add(ChatItem.FromJson(value.GetObject()));
+                if (data.Count < pageSize) break;
+            }
+            if (timeframeDays > 0)
+            {
+                var cutoff = DateTimeOffset.UtcNow.AddDays(-timeframeDays).ToUnixTimeMilliseconds();
+                result = result.FindAll(chat => chat.LastMessageTimestamp >= cutoff);
+            }
             return result;
         }
 

@@ -23,6 +23,7 @@ namespace WpBlueBubbles.Models
         public long LastMessageTimestamp { get; set; }
         public string LastMessageGuid { get; set; }
         public bool LastMessageIsFromMe { get; set; }
+        public bool HasAuthoritativeUnreadState { get; set; }
         public bool IsUnread
         {
             get { return _isUnread; }
@@ -109,7 +110,10 @@ namespace WpBlueBubbles.Models
                 LastMessageTimestamp = timestamp,
                 LastMessageGuid = lastMessage == null ? string.Empty : JsonValueReader.String(lastMessage, "guid"),
                 LastMessageIsFromMe = lastMessage != null && JsonValueReader.Boolean(lastMessage, "isFromMe"),
-                IsUnread = lastMessage != null && !JsonValueReader.Boolean(lastMessage, "isFromMe") && !JsonValueReader.Boolean(lastMessage, "isRead"),
+                HasAuthoritativeUnreadState = json.ContainsKey("hasUnreadMessage"),
+                IsUnread = json.ContainsKey("hasUnreadMessage")
+                    ? JsonValueReader.Boolean(json, "hasUnreadMessage")
+                    : lastMessage != null && !JsonValueReader.Boolean(lastMessage, "isFromMe") && !JsonValueReader.Boolean(lastMessage, "isRead"),
                 Service = service,
                 TimeLabel = DateLabels.Compact(timestamp),
                 Initials = MakeInitials(title),
