@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.IO;
 using System.Linq;
+using System.Net.Http;
 using System.Reflection;
 using System.Text;
 using System.Text.RegularExpressions;
@@ -13,6 +14,7 @@ using Windows.ApplicationModel.DataTransfer.ShareTarget;
 using Windows.ApplicationModel.Contacts;
 using Windows.ApplicationModel;
 using Windows.Foundation;
+using Windows.Networking.Connectivity;
 using Windows.UI.Input;
 using Windows.Storage;
 using Windows.Storage.Pickers;
@@ -57,7 +59,7 @@ namespace WpBlueBubbles
         private IReadOnlyDictionary<string, ImageSource> _contactImages = new Dictionary<string, ImageSource>();
         private IReadOnlyDictionary<string, string> _contactTileImages = new Dictionary<string, string>();
         private ShareOperation _shareOperation;
-        private StorageFile _sharedFile;
+        private readonly List<StorageFile> _sharedFiles = new List<StorageFile>();
         private string _sharedText;
         private bool _showArchived;
         private ChatItem _composeSelectedChat;
@@ -66,12 +68,15 @@ namespace WpBlueBubbles
         private bool _statusIsError;
         private readonly InputPane _inputPane;
         private bool _settingsLoaded;
+        private bool _inputPaneVisible;
         private string _chatStateSignature;
         private int _messageLoadGeneration;
         private int _chatLoadGeneration;
         private DateTimeOffset _pinMessagesToBottomUntil;
         private ServerCapabilities _serverCapabilities = new ServerCapabilities();
         private bool _serverCapabilitiesKnown;
+        private DataTemplate _compactChatTemplate;
+        private DataTemplate _compactMessageTemplate;
         private string _typingChatGuid;
         private int _availabilityGeneration;
         private string _composeService;
@@ -81,6 +86,8 @@ namespace WpBlueBubbles
         public MainPage()
         {
             InitializeComponent();
+            _compactChatTemplate = ChatsList.ItemTemplate;
+            _compactMessageTemplate = MessagesList.ItemTemplate;
             _inputPane = InputPane.GetForCurrentView();
             ChatsList.ItemsSource = _chats;
             MessagesList.ItemsSource = _messages;
@@ -103,12 +110,24 @@ namespace WpBlueBubbles
         {
             ApplicationView.GetForCurrentView().SetDesiredBoundsMode(ApplicationViewBoundsMode.UseVisible);
             UpdateResponsiveLayout();
-            SettingsStore.EnsureVersion019Defaults();
-            var settings = SettingsStore.Load();
+            ServerSettings settings;
+            try
+            {
+                SettingsStore.EnsureVersion019Defaults();
+                settings = SettingsStore.Load();
+            }
+            catch
+            {
+                // Corrupt legacy local state must never require uninstalling the app to recover.
+                SettingsStore.Clear();
+                SettingsStore.EnsureVersion019Defaults();
+                settings = SettingsStore.Load();
+            }
             OledBlackToggle.IsOn = settings.OledBlack;
             AccentColorToggle.IsOn = settings.UseAccentColor;
+            LargerUiToggle.IsOn = settings.LargerUi;
             DeveloperModeToggle.IsOn = settings.DeveloperMode;
-            ApplyTheme(settings.OledBlack, settings.UseAccentColor);
+            ApplyTheme(settings.OledBlack, settings.UseAccentColor, settings.LargerUi);
             SetPackageVersion();
             UpdateServerDetails(settings.Address);
             ServerAddressBox.Text = settings.Address ?? string.Empty;
@@ -119,7 +138,8 @@ namespace WpBlueBubbles
             SelectTimeframe(_syncTimeframeDays);
             _settingsLoaded = true;
             UpdateSyncDescription();
-            await NotificationService.DisableAsync();
+            try { await NotificationService.DisableAsync(); }
+            catch { }
             if (!settings.IsComplete)
             {
                 SetSettingsMode(false);
@@ -219,7 +239,7 @@ namespace WpBlueBubbles
             }
             catch (Exception ex)
             {
-                ConnectError.Text = ex.Message;
+                ConnectError.Text = FriendlyError(ex, "connect to the server");
                 SetSettingsMode(false);
                 SettingsOverlay.Visibility = Visibility.Visible;
                 ShowStatus("Could not connect", true);
@@ -239,7 +259,7 @@ namespace WpBlueBubbles
             if (client == null) return false;
             var timeframeDays = _syncTimeframeDays;
             var loadGeneration = ++_chatLoadGeneration;
-            var chats = await client.GetChatsAsync(timeframeDays);
+            var chats = (await client.GetChatsAsync(timeframeDays)).OrderByDescending(chat => chat.LastMessageTimestamp).ThenBy(chat => chat.Title).ToList();
             if (loadGeneration != _chatLoadGeneration || client != _client || timeframeDays != _syncTimeframeDays) return false;
             foreach (var chat in chats)
             {
@@ -304,7 +324,8 @@ namespace WpBlueBubbles
                 var message = received[i];
                 message.UsesSmsColor = selectedChat.UsesSmsColor;
                 message.ResolveSender(selectedChat.IsGroupChat, _contactNames);
-                if (message.IsImageAttachment || message.IsVideoAttachment) message.SetAttachmentUri(client.GetAttachmentDownloadUri(message.AttachmentGuid));
+                if (message.IsImageAttachment) message.SetAttachmentUri(client.GetAttachmentDownloadUri(message.AttachmentGuid));
+                else if (message.IsVideoAttachment) await PrepareVideoAsync(client, message);
                 _messages.Add(message);
                 SetSyncing(true, "Syncing messages: " + (i + 1) + " of " + total);
             }
@@ -330,9 +351,13 @@ namespace WpBlueBubbles
             try
             {
                 var chatsChanged = await RefreshChatsAsync();
-                if (chatsChanged) await RefreshMessagesAsync(false);
+                if (chatsChanged)
+                {
+                    await RefreshMessagesAsync(false);
+                    if (_selectedChat != null && ConversationPane.Visibility == Visibility.Visible) await MarkSelectedChatReadAsync();
+                }
             }
-            catch (Exception ex) { ShowStatus(ex.Message, true); }
+            catch (Exception ex) { ShowStatus(FriendlyError(ex, "refresh chats"), true); }
             finally { _isRefreshing = false; SetSyncing(false, null); }
         }
 
@@ -354,37 +379,45 @@ namespace WpBlueBubbles
             }
             ShowStatus("Loading messages...", false);
             try { SetSyncing(true, "Syncing messages..."); await RefreshMessagesAsync(true); await MarkSelectedChatReadAsync(); ShowStatus(string.Empty, false); }
-            catch (Exception ex) { ShowStatus(ex.Message, true); }
+            catch (Exception ex) { ShowStatus(FriendlyError(ex, "open the conversation"), true); }
             finally { SetSyncing(false, null); }
         }
 
         private async Task SendCurrentMessageAsync()
         {
             var text = MessageBox.Text.Trim();
-            if (_client == null || _selectedChat == null || (text.Length == 0 && _sharedFile == null)) return;
+            if (_client == null || _selectedChat == null || (text.Length == 0 && _sharedFiles.Count == 0)) return;
             SendButton.IsEnabled = false;
-            MessageBox.IsEnabled = false;
+            MessageBox.IsReadOnly = true;
+            MessageBox.Opacity = 0.55;
             try
             {
                 StopTypingWithoutWaiting();
-                if (_sharedFile != null) await _client.SendAttachmentAsync(_selectedChat.Guid, _sharedFile);
+                foreach (var file in _sharedFiles.ToList()) await _client.SendAttachmentAsync(_selectedChat.Guid, file);
                 if (text.Length > 0) await _client.SendTextAsync(_selectedChat.Guid, text);
                 MessageBox.Text = string.Empty;
                 CompleteSharedContent();
                 await RefreshMessagesAsync(true);
             }
-            catch (Exception ex) { ShowStatus(ex.Message, true); }
-            finally { SendButton.IsEnabled = true; MessageBox.IsEnabled = true; MessageBox.Focus(FocusState.Programmatic); }
+            catch (Exception ex) { ShowStatus(FriendlyError(ex, "send the message"), true); }
+            finally { SendButton.IsEnabled = true; MessageBox.IsReadOnly = false; MessageBox.Opacity = 1; MessageBox.Focus(FocusState.Programmatic); }
         }
 
         private async void Send_Click(object sender, RoutedEventArgs e) { await SendCurrentMessageAsync(); }
         private async void MessageBox_KeyDown(object sender, KeyRoutedEventArgs e)
         {
-            if (e.Key == VirtualKey.Enter && Window.Current.CoreWindow.GetKeyState(VirtualKey.Shift).HasFlag(CoreVirtualKeyStates.Down) == false)
+            if (ShouldSendOnEnter(e))
             {
                 e.Handled = true;
                 await SendCurrentMessageAsync();
             }
+        }
+
+        private bool ShouldSendOnEnter(KeyRoutedEventArgs e)
+        {
+            if (e.Key != VirtualKey.Enter || _inputPaneVisible) return false;
+            if (string.Equals(AnalyticsInfo.DeviceForm, "Phone", StringComparison.OrdinalIgnoreCase)) return false;
+            return !Window.Current.CoreWindow.GetKeyState(VirtualKey.Shift).HasFlag(CoreVirtualKeyStates.Down);
         }
 
         private async void MessageBox_TextChanged(object sender, TextChangedEventArgs e)
@@ -436,7 +469,7 @@ namespace WpBlueBubbles
             _typingChatGuid = null;
             if (!_serverCapabilities.CanUsePrivateApi || _client == null || string.IsNullOrWhiteSpace(guid)) return;
             try { await _client.StopTypingAsync(guid); }
-            catch (Exception ex) { ShowStatus(ex.Message, true); }
+            catch (Exception ex) { ShowStatus(FriendlyError(ex, "update typing status"), true); }
         }
 
         private async void StopTypingWithoutWaiting()
@@ -450,9 +483,7 @@ namespace WpBlueBubbles
             if (chat == null) return;
             chat.IsUnread = false;
             NotificationStateStore.MarkRead(chat.Guid);
-            if (!_serverCapabilities.CanUsePrivateApi || _client == null) return;
-            try { await _client.MarkChatReadAsync(chat.Guid); }
-            catch (Exception ex) { ShowStatus(ex.Message, true); }
+            await Task.CompletedTask;
         }
 
         private async void Connect_Click(object sender, RoutedEventArgs e)
@@ -556,10 +587,30 @@ namespace WpBlueBubbles
             picker.FileTypeFilter.Add(".mov");
             picker.FileTypeFilter.Add(".wmv");
             picker.FileTypeFilter.Add(".pdf");
-            var file = await picker.PickSingleFileAsync();
-            if (file == null) return;
-            _sharedFile = file;
+            var files = await picker.PickMultipleFilesAsync();
+            if (files == null || files.Count == 0) return;
+            _sharedFiles.Clear();
+            _sharedFiles.AddRange(files);
             StageSharedContentInComposer();
+        }
+
+        private async Task PrepareVideoAsync(BlueBubblesClient client, MessageItem message)
+        {
+            try
+            {
+                var folder = await ApplicationData.Current.TemporaryFolder.CreateFolderAsync("MessageMedia", CreationCollisionOption.OpenIfExists);
+                var extension = Path.GetExtension(message.AttachmentLabel);
+                if (string.IsNullOrWhiteSpace(extension)) extension = message.AttachmentMimeType.IndexOf("quicktime", StringComparison.OrdinalIgnoreCase) >= 0 ? ".mov" : ".mp4";
+                var safeGuid = Regex.Replace(message.AttachmentGuid ?? message.Guid ?? Guid.NewGuid().ToString("N"), "[^A-Za-z0-9_-]", "_");
+                var file = await folder.CreateFileAsync(safeGuid + extension, CreationCollisionOption.OpenIfExists);
+                var properties = await file.GetBasicPropertiesAsync();
+                if (properties.Size == 0) await FileIO.WriteBytesAsync(file, await client.DownloadAttachmentAsync(message.AttachmentGuid));
+                message.SetAttachmentUri("ms-appdata:///temp/MessageMedia/" + file.Name);
+            }
+            catch
+            {
+                message.MarkAttachmentFailed();
+            }
         }
 
         private async void Message_Holding(object sender, HoldingRoutedEventArgs e)
@@ -664,7 +715,7 @@ namespace WpBlueBubbles
             Composer.Visibility = Visibility.Visible;
             if (UseSinglePaneLayout) ReturnToConversation();
             try { await RefreshMessagesAsync(true); await MarkSelectedChatReadAsync(); }
-            catch (Exception ex) { ShowStatus(ex.Message, true); }
+            catch (Exception ex) { ShowStatus(FriendlyError(ex, "open the conversation"), true); }
         }
 
         private void CloseCompose_Click(object sender, RoutedEventArgs e)
@@ -745,7 +796,7 @@ namespace WpBlueBubbles
 
         private async void ComposeMessageBox_KeyDown(object sender, KeyRoutedEventArgs e)
         {
-            if (e.Key != VirtualKey.Enter || Window.Current.CoreWindow.GetKeyState(VirtualKey.Shift).HasFlag(CoreVirtualKeyStates.Down)) return;
+            if (!ShouldSendOnEnter(e)) return;
             e.Handled = true;
             await SendComposedMessageAsync();
         }
@@ -754,7 +805,7 @@ namespace WpBlueBubbles
         {
             if (_client == null) return;
             var message = ComposeMessageBox.Text.Trim();
-            if (string.IsNullOrWhiteSpace(message) && _sharedFile == null) { ShowStatus("Write a message or choose an attachment before sending.", true); return; }
+            if (string.IsNullOrWhiteSpace(message) && _sharedFiles.Count == 0) { ShowStatus("Write a message or choose an attachment before sending.", true); return; }
             var recipient = RecipientBox.Text.Trim();
             var recipients = ParseRecipients(recipient);
             if (_composeSelectedChat == null && recipients.Count == 0) { ShowStatus("Enter at least one phone number or email address.", true); return; }
@@ -763,8 +814,9 @@ namespace WpBlueBubbles
 
             var sent = false;
             ComposeSendButton.IsEnabled = false;
-            ComposeMessageBox.IsEnabled = false;
-            RecipientBox.IsEnabled = false;
+            ComposeMessageBox.IsReadOnly = true;
+            RecipientBox.IsReadOnly = true;
+            ComposeMessageBox.Opacity = RecipientBox.Opacity = 0.55;
             try
             {
                 SetSyncing(true, "Sending message...");
@@ -772,7 +824,7 @@ namespace WpBlueBubbles
                 if (chat == null) chat = await _client.CreateChatAsync(recipients, message, _composeService);
                 else if (!string.IsNullOrWhiteSpace(message)) await _client.SendTextAsync(chat.Guid, message);
                 if (chat == null || string.IsNullOrWhiteSpace(chat.Guid)) throw new InvalidOperationException("BlueBubbles sent the message but did not return the conversation.");
-                if (_sharedFile != null) await _client.SendAttachmentAsync(chat.Guid, _sharedFile);
+                foreach (var file in _sharedFiles.ToList()) await _client.SendAttachmentAsync(chat.Guid, file);
                 sent = true;
                 if (string.IsNullOrWhiteSpace(chat.Title)) chat.Title = string.IsNullOrWhiteSpace(recipient) ? "Conversation" : recipient;
                 ComposeOverlay.Visibility = Visibility.Collapsed;
@@ -794,13 +846,15 @@ namespace WpBlueBubbles
             }
             catch (Exception ex)
             {
-                ShowStatus((sent ? "Message was sent, but the conversation could not refresh: " : string.Empty) + ex.Message, true);
+                ShowStatus(sent ? "The message was sent, but the conversation could not be found or refreshed." : FriendlyError(ex, "send the message"), true);
             }
             finally
             {
                 ComposeSendButton.IsEnabled = true;
-                ComposeMessageBox.IsEnabled = true;
-                RecipientBox.IsEnabled = true;
+                ComposeMessageBox.IsReadOnly = false;
+                RecipientBox.IsReadOnly = false;
+                ComposeMessageBox.Opacity = RecipientBox.Opacity = 1;
+                if (ComposeOverlay.Visibility == Visibility.Visible) ComposeMessageBox.Focus(FocusState.Programmatic);
                 SetSyncing(false, null);
             }
         }
@@ -985,8 +1039,8 @@ namespace WpBlueBubbles
         private void ThemeToggle_Toggled(object sender, RoutedEventArgs e)
         {
             if (!_settingsLoaded) return;
-            SettingsStore.SaveAppearance(OledBlackToggle.IsOn, AccentColorToggle.IsOn);
-            ApplyTheme(OledBlackToggle.IsOn, AccentColorToggle.IsOn);
+            SettingsStore.SaveAppearance(OledBlackToggle.IsOn, AccentColorToggle.IsOn, LargerUiToggle.IsOn);
+            ApplyTheme(OledBlackToggle.IsOn, AccentColorToggle.IsOn, LargerUiToggle.IsOn);
         }
 
         private void DeveloperModeToggle_Toggled(object sender, RoutedEventArgs e)
@@ -994,14 +1048,58 @@ namespace WpBlueBubbles
             if (_settingsLoaded) SettingsStore.SaveDeveloperMode(DeveloperModeToggle.IsOn);
         }
 
-        private static void ApplyTheme(bool oledBlack, bool useAccentColor)
+        private void ApplyTheme(bool oledBlack, bool useAccentColor, bool largerUi)
         {
             var resources = Application.Current.Resources;
             var blue = useAccentColor ? new UISettings().GetColorValue(UIColorType.Accent) : Windows.UI.Color.FromArgb(255, 14, 99, 156);
+            var sent = useAccentColor ? new UISettings().GetColorValue(UIColorType.AccentDark1) : blue;
             SetBrushColor(resources, "MessengerBlueBrush", blue);
+            SetBrushColor(resources, "SentMessageBrush", sent);
             SetBrushColor(resources, "AppBackgroundBrush", oledBlack ? Windows.UI.Colors.Black : Windows.UI.Color.FromArgb(255, 7, 17, 23));
             SetBrushColor(resources, "PanelBackgroundBrush", oledBlack ? Windows.UI.Colors.Black : Windows.UI.Color.FromArgb(255, 11, 23, 30));
             SetBrushColor(resources, "HeaderBackgroundBrush", oledBlack ? Windows.UI.Colors.Black : Windows.UI.Color.FromArgb(255, 9, 20, 27));
+            ApplyUiDensity(largerUi);
+        }
+
+        private void ApplyUiDensity(bool larger)
+        {
+            NavigationSplitView.OpenPaneLength = larger ? 310 : 250;
+            NavigationPaneGrid.Padding = larger ? new Thickness(20, 28, 16, 18) : new Thickness(14, 20, 12, 14);
+            NavigationAvatar.Width = NavigationAvatar.Height = larger ? 52 : 42;
+            NavigationAvatar.CornerRadius = new CornerRadius(larger ? 26 : 21);
+            NavigationIdentityText.FontSize = larger ? 26 : 21;
+            foreach (var button in new[] { NavChatsButton, NavArchivedButton, NavContactsButton, NavSettingsButton })
+            {
+                button.FontSize = larger ? 22 : 18;
+                button.MinHeight = larger ? 62 : 50;
+                button.Padding = larger ? new Thickness(12, 0, 0, 0) : new Thickness(8, 0, 0, 0);
+            }
+            PrimaryHeaderRow.Height = new GridLength(larger ? 64 : 54);
+            HeaderLeadingColumn.Width = new GridLength(larger ? 64 : 54);
+            PageTitle.FontSize = larger ? 25 : 22;
+            var iconSize = larger ? 52 : 44;
+            foreach (var button in new[] { MenuButton, BackButton, ChatActionsButton, SearchButton, ComposeButton })
+            {
+                button.Width = iconSize;
+                button.Height = iconSize;
+                button.FontSize = larger ? 20 : 18;
+            }
+            var composerSize = larger ? 48 : 42;
+            ComposerAttachColumn.Width = new GridLength(composerSize);
+            ComposerSendColumn.Width = new GridLength(composerSize);
+            AttachButton.Width = AttachButton.Height = composerSize;
+            SendButton.Width = SendButton.Height = composerSize;
+            MessageBox.FontSize = larger ? 18 : 16;
+            MessageBox.MinHeight = larger ? 38 : 34;
+            MessageBox.MaxHeight = larger ? 124 : 104;
+            var itemStyle = new Style(typeof(ListViewItem));
+            itemStyle.Setters.Add(new Setter(ListViewItem.HorizontalContentAlignmentProperty, HorizontalAlignment.Stretch));
+            itemStyle.Setters.Add(new Setter(ListViewItem.PaddingProperty, new Thickness(0)));
+            itemStyle.Setters.Add(new Setter(ListViewItem.MinHeightProperty, larger ? 82d : 68d));
+            ChatsList.ItemContainerStyle = itemStyle;
+            ChatsList.ItemTemplate = larger ? Resources["LargeChatTemplate"] as DataTemplate : _compactChatTemplate;
+            MessagesList.ItemTemplate = larger ? Resources["LargeMessageTemplate"] as DataTemplate : _compactMessageTemplate;
+            MessagesList.Padding = larger ? new Thickness(14, 10, 14, 10) : new Thickness(10, 7, 10, 7);
         }
 
         private static void SetBrushColor(ResourceDictionary resources, string key, Windows.UI.Color color)
@@ -1062,7 +1160,8 @@ namespace WpBlueBubbles
             OledBlackToggle.IsOn = false;
             AccentColorToggle.IsOn = false;
             DeveloperModeToggle.IsOn = false;
-            ApplyTheme(false, false);
+            LargerUiToggle.IsOn = false;
+            ApplyTheme(false, false, false);
             _serverCapabilitiesKnown = false;
             _serverCapabilities = new ServerCapabilities();
             UpdateServerDetails(string.Empty);
@@ -1080,6 +1179,8 @@ namespace WpBlueBubbles
             _messageLoadGeneration++;
             ResetMessageItems();
             _showArchived = archived;
+            SearchBox.Visibility = Visibility.Collapsed;
+            SearchBox.Text = string.Empty;
             PageTitle.Text = archived ? "Archived" : "Chats";
             ApplyChatSearch();
             _selectedChat = null;
@@ -1093,6 +1194,7 @@ namespace WpBlueBubbles
         private void UpdateHeaderActions(bool conversationOpen)
         {
             if (ComposeButton != null) ComposeButton.Visibility = conversationOpen ? Visibility.Collapsed : Visibility.Visible;
+            if (SearchButton != null) SearchButton.Visibility = conversationOpen ? Visibility.Collapsed : Visibility.Visible;
             if (ChatActionsButton != null) ChatActionsButton.Visibility = conversationOpen ? Visibility.Visible : Visibility.Collapsed;
         }
 
@@ -1147,7 +1249,7 @@ namespace WpBlueBubbles
                 _selectedChat = _allChats.FirstOrDefault(chat => chat.Guid == _selectedChat.Guid) ?? _selectedChat;
                 PageTitle.Text = _selectedChat.Title;
             }
-            catch (Exception ex) { ShowStatus(ex.Message, true); }
+            catch (Exception ex) { ShowStatus(FriendlyError(ex, "rename the conversation"), true); }
             finally { SetSyncing(false, null); }
         }
 
@@ -1170,7 +1272,7 @@ namespace WpBlueBubbles
                 _chatStateSignature = null;
                 await RefreshChatsAsync();
             }
-            catch (Exception ex) { ShowStatus(ex.Message, true); }
+            catch (Exception ex) { ShowStatus(FriendlyError(ex, "leave the conversation"), true); }
             finally { SetSyncing(false, null); }
         }
 
@@ -1229,7 +1331,7 @@ namespace WpBlueBubbles
             }
             catch (Exception ex)
             {
-                ShowStatus(ex.Message, true);
+                ShowStatus(FriendlyError(ex, "delete the conversation"), true);
             }
             finally
             {
@@ -1239,6 +1341,7 @@ namespace WpBlueBubbles
 
         private void InputPane_Showing(InputPane sender, InputPaneVisibilityEventArgs args)
         {
+            _inputPaneVisible = true;
             // Fit the entire app between its current top edge and the keyboard's top edge.
             // This is absolute, so it cannot double-apply an inset if Windows already resized us.
             args.EnsuredFocusedElementInView = true;
@@ -1256,6 +1359,7 @@ namespace WpBlueBubbles
 
         private void InputPane_Hiding(InputPane sender, InputPaneVisibilityEventArgs args)
         {
+            _inputPaneVisible = false;
             RootGrid.Margin = new Thickness(0);
             RootGrid.Height = double.NaN;
             RootGrid.VerticalAlignment = VerticalAlignment.Stretch;
@@ -1313,11 +1417,23 @@ namespace WpBlueBubbles
             ApplyChatSearch();
         }
 
+        private void Search_Click(object sender, RoutedEventArgs e)
+        {
+            var opening = SearchBox.Visibility != Visibility.Visible;
+            SearchBox.Visibility = opening ? Visibility.Visible : Visibility.Collapsed;
+            if (opening) SearchBox.Focus(FocusState.Programmatic);
+            else
+            {
+                SearchBox.Text = string.Empty;
+                ApplyChatSearch();
+            }
+        }
+
         private void ApplyChatSearch()
         {
             var query = SearchBox == null ? string.Empty : SearchBox.Text.Trim();
             _chats.Clear();
-            foreach (var chat in _allChats.Where(chat => chat.IsArchived == _showArchived && (string.IsNullOrWhiteSpace(query) || chat.Title.IndexOf(query, StringComparison.OrdinalIgnoreCase) >= 0 || chat.Preview.IndexOf(query, StringComparison.OrdinalIgnoreCase) >= 0 || chat.ParticipantSummary.IndexOf(query, StringComparison.OrdinalIgnoreCase) >= 0))) _chats.Add(chat);
+            foreach (var chat in _allChats.Where(chat => chat.IsArchived == _showArchived && (string.IsNullOrWhiteSpace(query) || chat.Title.IndexOf(query, StringComparison.OrdinalIgnoreCase) >= 0 || chat.Preview.IndexOf(query, StringComparison.OrdinalIgnoreCase) >= 0 || chat.ParticipantSummary.IndexOf(query, StringComparison.OrdinalIgnoreCase) >= 0)).OrderByDescending(chat => chat.LastMessageTimestamp).ThenBy(chat => chat.Title)) _chats.Add(chat);
         }
 
         private async Task LoadContactsAsync()
@@ -1366,14 +1482,15 @@ namespace WpBlueBubbles
                 if (view.Contains(StandardDataFormats.StorageItems))
                 {
                     var items = await view.GetStorageItemsAsync();
-                    _sharedFile = items.OfType<StorageFile>().FirstOrDefault();
-                    if (_sharedFile == null) { ShowStatus("No supported file was provided.", true); CompleteSharedContent(); return; }
+                    _sharedFiles.Clear();
+                    _sharedFiles.AddRange(items.OfType<StorageFile>());
+                    if (_sharedFiles.Count == 0) { ShowStatus("No supported file was provided.", true); CompleteSharedContent(); return; }
                 }
                 if (view.Contains(StandardDataFormats.Text))
                 {
                     _sharedText = await view.GetTextAsync();
                 }
-                if (_sharedFile == null && string.IsNullOrWhiteSpace(_sharedText)) { ShowStatus("No shareable item was provided.", true); CompleteSharedContent(); return; }
+                if (_sharedFiles.Count == 0 && string.IsNullOrWhiteSpace(_sharedText)) { ShowStatus("No shareable item was provided.", true); CompleteSharedContent(); return; }
                 OpenCompose();
             }
             catch
@@ -1385,14 +1502,14 @@ namespace WpBlueBubbles
 
         private string BuildSharedPreview()
         {
-            if (_sharedFile != null && !string.IsNullOrWhiteSpace(_sharedText)) return "Sharing " + _sharedFile.Name + " and text.";
-            if (_sharedFile != null) return "Sharing " + _sharedFile.Name + ".";
+            if (_sharedFiles.Count > 0 && !string.IsNullOrWhiteSpace(_sharedText)) return "Sharing " + DescribeSharedFiles() + " and text.";
+            if (_sharedFiles.Count > 0) return "Sharing " + DescribeSharedFiles() + ".";
             return string.IsNullOrWhiteSpace(_sharedText) ? string.Empty : "Sharing text.";
         }
 
         private void StageSharedContentInComposer()
         {
-            if (_sharedFile == null && string.IsNullOrWhiteSpace(_sharedText)) return;
+            if (_sharedFiles.Count == 0 && string.IsNullOrWhiteSpace(_sharedText)) return;
             if (!string.IsNullOrWhiteSpace(_sharedText)) MessageBox.Text = _sharedText;
             SharedAttachmentBanner.Text = BuildSharedPreview();
             SharedAttachmentBanner.Visibility = Visibility.Visible;
@@ -1414,7 +1531,7 @@ namespace WpBlueBubbles
         private void ClearSharedContent()
         {
             _shareOperation = null;
-            _sharedFile = null;
+            _sharedFiles.Clear();
             _sharedText = null;
             SharedAttachmentBanner.Visibility = Visibility.Collapsed;
             SharedAttachmentBanner.Text = string.Empty;
@@ -1422,11 +1539,25 @@ namespace WpBlueBubbles
             SharedComposePreview.Visibility = Visibility.Collapsed;
         }
 
+        private string DescribeSharedFiles()
+        {
+            if (_sharedFiles.Count == 1) return _sharedFiles[0].Name;
+            return _sharedFiles.Count + " files";
+        }
+
         private void AttachmentImage_Failed(object sender, ExceptionRoutedEventArgs e)
         {
             var image = sender as Image;
             var message = image?.DataContext as MessageItem;
             if (message != null) message.MarkAttachmentFailed();
+        }
+
+        private void AttachmentMedia_Failed(object sender, ExceptionRoutedEventArgs e)
+        {
+            var media = sender as FrameworkElement;
+            var message = media?.DataContext as MessageItem;
+            if (message != null) message.MarkAttachmentFailed();
+            ShowStatus("This video could not be loaded. It may use a format unsupported by Windows Phone.", true);
         }
 
         private void ChatAvatar_Failed(object sender, ExceptionRoutedEventArgs e)
@@ -1471,6 +1602,30 @@ namespace WpBlueBubbles
             StatusText.Foreground = new Windows.UI.Xaml.Media.SolidColorBrush(isError ? Windows.UI.Color.FromArgb(255, 255, 140, 130) : Windows.UI.Colors.White);
             StatusBar.Visibility = isError && !string.IsNullOrWhiteSpace(message) ? Visibility.Visible : Visibility.Collapsed;
             if (_statusIsError) _statusTimer.Start();
+        }
+
+        private static string FriendlyError(Exception exception, string action)
+        {
+            if (!HasNetworkConnection()) return "This device is offline. Connect to Wi-Fi or cellular data, then try again.";
+            var root = exception == null ? null : exception.GetBaseException();
+            var detail = root == null ? string.Empty : root.Message ?? string.Empty;
+            if (root is HttpRequestException || root is TaskCanceledException || detail.IndexOf("net_http", StringComparison.OrdinalIgnoreCase) >= 0 || detail.IndexOf("connection", StringComparison.OrdinalIgnoreCase) >= 0)
+                return "The BlueBubbles server is offline or unreachable. Check that the Mac and server are running on the same network.";
+            if (detail.IndexOf("not found", StringComparison.OrdinalIgnoreCase) >= 0 || detail.IndexOf("404", StringComparison.OrdinalIgnoreCase) >= 0)
+                return "The conversation was not found on the BlueBubbles server. Refresh Chats and try again.";
+            var prefix = "BlueBubbles could not " + action + ".";
+            if (detail.Length == 0) return prefix;
+            if (detail.Length > 180) detail = detail.Substring(0, 180).TrimEnd() + "...";
+            return prefix + " " + detail;
+        }
+
+        private static bool HasNetworkConnection()
+        {
+            try
+            {
+                return NetworkInformation.GetConnectionProfiles().Any(profile => profile.GetNetworkConnectivityLevel() != NetworkConnectivityLevel.None);
+            }
+            catch { return true; }
         }
 
         private void StatusTimer_Tick(object sender, object e)

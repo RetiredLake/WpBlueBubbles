@@ -4,6 +4,7 @@ using System.Threading.Tasks;
 using Windows.Graphics.Imaging;
 using Windows.Media;
 using Windows.Media.Capture;
+using Windows.System.Profile;
 using Windows.Storage.Streams;
 using Windows.UI.Xaml.Controls;
 using ZXing;
@@ -22,6 +23,11 @@ namespace WpBlueBubbles.Services
             await _capture.InitializeAsync(new MediaCaptureInitializationSettings { StreamingCaptureMode = StreamingCaptureMode.Video });
             preview.Source = _capture;
             await _capture.StartPreviewAsync();
+            if (string.Equals(AnalyticsInfo.DeviceForm, "Phone", StringComparison.OrdinalIgnoreCase))
+            {
+                try { _capture.SetPreviewRotation(VideoRotation.Clockwise90Degrees); }
+                catch { }
+            }
         }
 
         public async Task<string> TryReadAsync()

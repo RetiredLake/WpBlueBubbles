@@ -19,6 +19,7 @@ namespace WpBlueBubbles.Services
         private const string StateKey = "NotificationChatState";
         private const string StateFileName = "notification-state.json";
         private const string TemporaryStateFileName = "notification-state.tmp";
+        private const string InitializedKey = "LocalReadStateInitialized";
         private static readonly object StateLock = new object();
 
         public static IReadOnlyDictionary<string, NotificationChatState> Load()
@@ -99,13 +100,25 @@ namespace WpBlueBubbles.Services
         public static void ReconcileReadState(IEnumerable<WpBlueBubbles.Models.ChatItem> chats)
         {
             var previousStates = Load();
+            var values = ApplicationData.Current.LocalSettings.Values;
+            var initialized = values.ContainsKey(InitializedKey) && values[InitializedKey] is bool && (bool)values[InitializedKey];
             var states = new Dictionary<string, NotificationChatState>();
             foreach (var chat in chats)
             {
                 NotificationChatState prior;
-                if (!chat.HasAuthoritativeUnreadState && previousStates.TryGetValue(chat.Guid, out prior) && string.Equals(prior.MessageGuid, chat.LastMessageGuid) && !prior.IsUnread)
+                if (!initialized)
                 {
                     chat.IsUnread = false;
+                }
+                else if (previousStates.TryGetValue(chat.Guid, out prior))
+                {
+                    chat.IsUnread = string.Equals(prior.MessageGuid, chat.LastMessageGuid)
+                        ? prior.IsUnread
+                        : !chat.LastMessageIsFromMe;
+                }
+                else
+                {
+                    chat.IsUnread = !chat.LastMessageIsFromMe;
                 }
                 states[chat.Guid] = new NotificationChatState
                 {
@@ -116,6 +129,7 @@ namespace WpBlueBubbles.Services
                 };
             }
             Save(states.Values);
+            values[InitializedKey] = true;
         }
 
         public static int UnreadConversationCount()

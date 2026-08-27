@@ -28,7 +28,7 @@ namespace WpBlueBubbles.Models
         public bool HasNonPreviewAttachment { get { return HasAttachments && !IsImageAttachment && !IsVideoAttachment; } }
         public event PropertyChangedEventHandler PropertyChanged;
         public HorizontalAlignment BubbleAlignment { get { return IsFromMe ? HorizontalAlignment.Right : HorizontalAlignment.Left; } }
-        public Brush BubbleBrush { get { return Application.Current.Resources["MessengerBlueBrush"] as Brush; } }
+        public Brush BubbleBrush { get { return Application.Current.Resources[IsFromMe ? "SentMessageBrush" : "MessengerBlueBrush"] as Brush; } }
 
         public static MessageItem FromJson(JsonObject json)
         {
@@ -91,10 +91,11 @@ namespace WpBlueBubbles.Models
 
         public void MarkAttachmentFailed()
         {
+            var wasVideo = IsVideoAttachment;
             AttachmentUri = string.Empty;
             IsImageAttachment = false;
             IsVideoAttachment = false;
-            AttachmentLabel = "Image unavailable";
+            AttachmentLabel = wasVideo ? "Video unavailable" : "Image unavailable";
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(AttachmentUri)));
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsImageAttachment)));
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsVideoAttachment)));

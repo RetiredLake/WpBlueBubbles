@@ -83,13 +83,15 @@ clients takes priority until notifications are complete.
 
 ## Status
 
-The current release is **v0.2.1.0 Beta**. Builds from v0.1.6.0 through v0.1.9.9
+The current release is **v0.2.1.5 Beta**. Builds from v0.1.6.0 through v0.1.9.9
 are published as legacy betas for testing and historical preservation.
 
 The v0.2 series stores growing per-chat state in files rather than the
 size-limited application settings container. v0.2.1.0 adds immediate OLED and
 accent theming, clearer server/settings details, sender labels for group
 messages, full-screen picture viewing, and contact-photo conversation tiles.
+v0.2.1.5 adds a denser phone layout, local-only unread tracking, reliable video
+loading, multi-file sharing, improved offline errors, and device-aware Enter behavior.
 
 Developed by [retiredlake.com](https://retiredlake.com/).
 

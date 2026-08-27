@@ -8,45 +8,61 @@
       <Setter Property="Padding" Value="18,0"/>
     </Style>
     <Style x:Key="HeaderIconButtonStyle" TargetType="Button">
-      <Setter Property="FontFamily" Value="Segoe MDL2 Assets"/><Setter Property="FontSize" Value="20"/><Setter Property="Width" Value="52"/><Setter Property="Height" Value="52"/><Setter Property="Padding" Value="0"/><Setter Property="Background" Value="Transparent"/><Setter Property="BorderThickness" Value="0"/>
+      <Setter Property="FontFamily" Value="Segoe MDL2 Assets"/><Setter Property="FontSize" Value="18"/><Setter Property="Width" Value="44"/><Setter Property="Height" Value="44"/><Setter Property="Padding" Value="0"/><Setter Property="Background" Value="Transparent"/><Setter Property="BorderThickness" Value="0"/>
     </Style>
     <Style x:Key="NavigationButtonStyle" TargetType="Button">
-      <Setter Property="FontSize" Value="22"/><Setter Property="HorizontalAlignment" Value="Stretch"/><Setter Property="HorizontalContentAlignment" Value="Left"/><Setter Property="MinHeight" Value="62"/><Setter Property="Padding" Value="12,0"/><Setter Property="Background" Value="Transparent"/><Setter Property="BorderThickness" Value="0"/>
+      <Setter Property="FontSize" Value="18"/><Setter Property="HorizontalAlignment" Value="Stretch"/><Setter Property="HorizontalContentAlignment" Value="Left"/><Setter Property="MinHeight" Value="50"/><Setter Property="Padding" Value="8,0"/><Setter Property="Background" Value="Transparent"/><Setter Property="BorderThickness" Value="0"/>
     </Style>
     <Style x:Key="ComposerTextBoxStyle" TargetType="TextBox">
       <Setter Property="Background" Value="{StaticResource HeaderBackgroundBrush}"/><Setter Property="Foreground" Value="White"/><Setter Property="PlaceholderForeground" Value="#A9B6BE"/><Setter Property="BorderBrush" Value="Transparent"/><Setter Property="BorderThickness" Value="0"/>
     </Style>
+    <DataTemplate x:Key="LargeChatTemplate">
+      <Grid Padding="16,10">
+        <Grid.ColumnDefinitions><ColumnDefinition Width="54"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+        <Grid Width="44" Height="44" VerticalAlignment="Center"><Border CornerRadius="22" Background="{StaticResource MessengerBlueBrush}"><Grid><Image Source="{Binding AvatarSource}" Stretch="UniformToFill" Visibility="{Binding HasAvatar, Converter={StaticResource BooleanToVisibilityConverter}}" ImageFailed="ChatAvatar_Failed"/><TextBlock Text="{Binding Initials}" FontSize="16" HorizontalAlignment="Center" VerticalAlignment="Center" Visibility="{Binding ShowInitials, Converter={StaticResource BooleanToVisibilityConverter}}"/></Grid></Border><Ellipse Width="11" Height="11" Fill="{StaticResource MessengerBlueBrush}" Stroke="{StaticResource HeaderBackgroundBrush}" StrokeThickness="2" HorizontalAlignment="Right" VerticalAlignment="Top" Visibility="{Binding IsUnread, Converter={StaticResource BooleanToVisibilityConverter}}"/></Grid>
+        <StackPanel Grid.Column="1" Margin="12,0,8,0" VerticalAlignment="Center"><TextBlock Text="{Binding Title}" FontSize="18" FontWeight="{Binding TitleWeight}" TextTrimming="CharacterEllipsis"/><TextBlock Text="{Binding Preview}" Foreground="{StaticResource MutedTextBrush}" FontSize="14" TextTrimming="CharacterEllipsis" Margin="0,3,0,0"/><TextBlock Text="{Binding ParticipantSummary}" Foreground="{StaticResource MutedTextBrush}" FontSize="12" TextTrimming="CharacterEllipsis" Visibility="{Binding IsGroupChat, Converter={StaticResource BooleanToVisibilityConverter}}"/></StackPanel>
+        <TextBlock Grid.Column="2" Text="{Binding TimeLabel}" Foreground="{StaticResource MutedTextBrush}" FontSize="13" Margin="6,4,0,0"/>
+      </Grid>
+    </DataTemplate>
+    <DataTemplate x:Key="LargeMessageTemplate">
+      <StackPanel HorizontalAlignment="{Binding BubbleAlignment}" MaxWidth="520" Margin="0,4">
+        <TextBlock Text="{Binding SenderName}" Visibility="{Binding ShowSenderName, Converter={StaticResource BooleanToVisibilityConverter}}" Foreground="{StaticResource MutedTextBrush}" FontSize="12" Margin="4,0,4,3" TextTrimming="CharacterEllipsis"/>
+        <Border Background="{Binding BubbleBrush}" CornerRadius="6" Padding="12,8"><StackPanel><Image Source="{Binding AttachmentUri}" Visibility="{Binding IsImageAttachment, Converter={StaticResource BooleanToVisibilityConverter}}" MaxWidth="300" MaxHeight="260" Stretch="Uniform" ImageFailed="AttachmentImage_Failed" ImageOpened="Media_Opened" Holding="Media_Holding" Tapped="Image_Tapped"/><Grid Holding="Media_Holding"><MediaElement Source="{Binding AttachmentUri}" Visibility="{Binding IsVideoAttachment, Converter={StaticResource BooleanToVisibilityConverter}}" AreTransportControlsEnabled="True" AutoPlay="False" MaxWidth="300" MaxHeight="260" MediaOpened="Media_Opened" MediaFailed="AttachmentMedia_Failed"/></Grid><RichTextBlock Visibility="{Binding HasText, Converter={StaticResource BooleanToVisibilityConverter}}" FontSize="16" TextWrapping="Wrap" Holding="Message_Holding" Loaded="MessageText_Loaded" DataContextChanged="MessageText_DataContextChanged" Margin="0,5,0,0"/><TextBlock Text="{Binding AttachmentLabel}" Visibility="{Binding HasNonPreviewAttachment, Converter={StaticResource BooleanToVisibilityConverter}}" Foreground="White" FontSize="12" Margin="0,5,0,0"/></StackPanel></Border>
+        <TextBlock Text="{Binding TimeLabel}" Foreground="{StaticResource MutedTextBrush}" FontSize="11" HorizontalAlignment="Right" Margin="0,3,2,0"/>
+      </StackPanel>
+    </DataTemplate>
   </Page.Resources>
   <Grid x:Name="RootGrid" Background="{StaticResource AppBackgroundBrush}">
-    <SplitView x:Name="NavigationSplitView" DisplayMode="Overlay" OpenPaneLength="310" CompactPaneLength="0" PaneBackground="{StaticResource MessengerBlueBrush}">
+    <SplitView x:Name="NavigationSplitView" DisplayMode="Overlay" OpenPaneLength="250" CompactPaneLength="0" PaneBackground="{StaticResource MessengerBlueBrush}">
       <SplitView.Pane>
-        <Grid Padding="20,28,16,18">
+        <Grid x:Name="NavigationPaneGrid" Padding="14,20,12,14">
           <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
           <StackPanel Orientation="Horizontal">
-            <Border Width="52" Height="52" CornerRadius="26" Background="#18000000">
-              <FontIcon Glyph="&#xE77B;" FontSize="27" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+            <Border x:Name="NavigationAvatar" Width="42" Height="42" CornerRadius="21" Background="#18000000">
+              <FontIcon Glyph="&#xE77B;" FontSize="23" HorizontalAlignment="Center" VerticalAlignment="Center"/>
             </Border>
-            <TextBlock x:Name="NavigationIdentityText" Text="BlueBubbles" FontSize="26" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+            <TextBlock x:Name="NavigationIdentityText" Text="BlueBubbles" FontSize="21" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" Margin="8,0,0,0"/>
           </StackPanel>
           <StackPanel Grid.Row="1" Margin="0,32,0,0">
-            <Button Style="{StaticResource NavigationButtonStyle}" Click="Chats_Click"><StackPanel Orientation="Horizontal"><FontIcon Glyph="&#xE8F2;"/><TextBlock Text="Chats" Margin="22,0,0,0"/></StackPanel></Button>
-            <Button Style="{StaticResource NavigationButtonStyle}" Click="Archived_Click"><StackPanel Orientation="Horizontal"><FontIcon Glyph="&#xE7B8;"/><TextBlock Text="Archived" Margin="22,0,0,0"/></StackPanel></Button>
-            <Button Style="{StaticResource NavigationButtonStyle}" Click="Contacts_Click"><StackPanel Orientation="Horizontal"><FontIcon Glyph="&#xE716;"/><TextBlock Text="Contacts" Margin="22,0,0,0"/></StackPanel></Button>
+            <Button x:Name="NavChatsButton" Style="{StaticResource NavigationButtonStyle}" Click="Chats_Click"><StackPanel Orientation="Horizontal"><FontIcon Glyph="&#xE8F2;"/><TextBlock Text="Chats" Margin="22,0,0,0"/></StackPanel></Button>
+            <Button x:Name="NavArchivedButton" Style="{StaticResource NavigationButtonStyle}" Click="Archived_Click"><StackPanel Orientation="Horizontal"><FontIcon Glyph="&#xE7B8;"/><TextBlock Text="Archived" Margin="22,0,0,0"/></StackPanel></Button>
+            <Button x:Name="NavContactsButton" Style="{StaticResource NavigationButtonStyle}" Click="Contacts_Click"><StackPanel Orientation="Horizontal"><FontIcon Glyph="&#xE716;"/><TextBlock Text="Contacts" Margin="22,0,0,0"/></StackPanel></Button>
           </StackPanel>
-          <Button Grid.Row="3" Style="{StaticResource NavigationButtonStyle}" Click="Settings_Click"><StackPanel Orientation="Horizontal"><FontIcon Glyph="&#xE713;"/><TextBlock Text="Settings" Margin="22,0,0,0"/></StackPanel></Button>
+          <Button x:Name="NavSettingsButton" Grid.Row="3" Style="{StaticResource NavigationButtonStyle}" Click="Settings_Click"><StackPanel Orientation="Horizontal"><FontIcon Glyph="&#xE713;"/><TextBlock Text="Settings" Margin="22,0,0,0"/></StackPanel></Button>
         </Grid>
       </SplitView.Pane>
 
       <SplitView.Content>
         <Grid>
-          <Grid.RowDefinitions><RowDefinition Height="64"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+          <Grid.RowDefinitions><RowDefinition x:Name="PrimaryHeaderRow" Height="54"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
           <Grid x:Name="PrimaryHeader" Background="{StaticResource HeaderBackgroundBrush}" BorderBrush="{StaticResource AppBorderBrush}" BorderThickness="0,0,0,1" Canvas.ZIndex="1">
-            <Grid.ColumnDefinitions><ColumnDefinition Width="64"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+            <Grid.ColumnDefinitions><ColumnDefinition x:Name="HeaderLeadingColumn" Width="54"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
             <Button x:Name="MenuButton" Style="{StaticResource HeaderIconButtonStyle}" Content="&#xE700;" Click="Menu_Click" AutomationProperties.Name="Menu"/>
             <Button x:Name="BackButton" Style="{StaticResource HeaderIconButtonStyle}" Content="&#xE72B;" Click="Back_Click" Visibility="Collapsed" AutomationProperties.Name="Back to chats"/>
-            <TextBlock x:Name="PageTitle" Grid.Column="1" Text="Chats" FontSize="25" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+            <TextBlock x:Name="PageTitle" Grid.Column="1" Text="Chats" FontSize="22" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
             <StackPanel Grid.Column="2" Orientation="Horizontal">
               <Button x:Name="ChatActionsButton" Style="{StaticResource HeaderIconButtonStyle}" Content="&#xE10C;" Click="ChatActions_Click" Visibility="Collapsed" AutomationProperties.Name="Conversation actions"/>
+              <Button x:Name="SearchButton" Style="{StaticResource HeaderIconButtonStyle}" Content="&#xE721;" Click="Search_Click" AutomationProperties.Name="Search chats"/>
               <Button x:Name="ComposeButton" Style="{StaticResource HeaderIconButtonStyle}" Content="&#xE70F;" Click="Compose_Click" AutomationProperties.Name="Compose new message"/>
             </StackPanel>
           </Grid>
@@ -56,22 +72,22 @@
 
             <Grid x:Name="ChatsPane" Grid.Column="0" Grid.ColumnSpan="3" Background="{StaticResource PanelBackgroundBrush}">
               <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
-              <TextBox x:Name="SearchBox" Margin="16,14" PlaceholderText="Search chats" TextChanged="SearchBox_TextChanged"/>
+              <TextBox x:Name="SearchBox" Margin="12,8" PlaceholderText="Search chats" TextChanged="SearchBox_TextChanged" Visibility="Collapsed"/>
               <ListView x:Name="ChatsList" Grid.Row="1" IsItemClickEnabled="True" ItemClick="ChatsList_ItemClick" SelectionMode="Single">
                 <ListView.ItemContainerStyle>
-                  <Style TargetType="ListViewItem"><Setter Property="HorizontalContentAlignment" Value="Stretch"/><Setter Property="Padding" Value="0"/><Setter Property="MinHeight" Value="82"/></Style>
+                  <Style TargetType="ListViewItem"><Setter Property="HorizontalContentAlignment" Value="Stretch"/><Setter Property="Padding" Value="0"/><Setter Property="MinHeight" Value="68"/></Style>
                 </ListView.ItemContainerStyle>
                 <ListView.ItemTemplate>
                   <DataTemplate>
-                    <Grid Padding="16,10">
-                      <Grid.ColumnDefinitions><ColumnDefinition Width="54"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-                      <Grid Width="44" Height="44" VerticalAlignment="Center"><Border CornerRadius="22" Background="{StaticResource MessengerBlueBrush}"><Grid><Image Source="{Binding AvatarSource}" Stretch="UniformToFill" Visibility="{Binding HasAvatar, Converter={StaticResource BooleanToVisibilityConverter}}" ImageFailed="ChatAvatar_Failed"/><TextBlock Text="{Binding Initials}" FontSize="16" HorizontalAlignment="Center" VerticalAlignment="Center" Visibility="{Binding ShowInitials, Converter={StaticResource BooleanToVisibilityConverter}}"/></Grid></Border><Ellipse Width="11" Height="11" Fill="{StaticResource MessengerBlueBrush}" Stroke="{StaticResource HeaderBackgroundBrush}" StrokeThickness="2" HorizontalAlignment="Right" VerticalAlignment="Top" Visibility="{Binding IsUnread, Converter={StaticResource BooleanToVisibilityConverter}}"/></Grid>
-                      <StackPanel Grid.Column="1" Margin="12,0,8,0" VerticalAlignment="Center">
-                        <TextBlock Text="{Binding Title}" FontSize="18" FontWeight="{Binding TitleWeight}" TextTrimming="CharacterEllipsis"/>
-                        <TextBlock Text="{Binding Preview}" Foreground="{StaticResource MutedTextBrush}" FontSize="14" TextTrimming="CharacterEllipsis" Margin="0,3,0,0"/>
-                        <TextBlock Text="{Binding ParticipantSummary}" Foreground="{StaticResource MutedTextBrush}" FontSize="12" TextTrimming="CharacterEllipsis" Visibility="{Binding IsGroupChat, Converter={StaticResource BooleanToVisibilityConverter}}"/>
+                    <Grid Padding="12,7">
+                      <Grid.ColumnDefinitions><ColumnDefinition Width="46"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                      <Grid Width="38" Height="38" VerticalAlignment="Center"><Border CornerRadius="19" Background="{StaticResource MessengerBlueBrush}"><Grid><Image Source="{Binding AvatarSource}" Stretch="UniformToFill" Visibility="{Binding HasAvatar, Converter={StaticResource BooleanToVisibilityConverter}}" ImageFailed="ChatAvatar_Failed"/><TextBlock Text="{Binding Initials}" FontSize="14" HorizontalAlignment="Center" VerticalAlignment="Center" Visibility="{Binding ShowInitials, Converter={StaticResource BooleanToVisibilityConverter}}"/></Grid></Border><Ellipse Width="9" Height="9" Fill="{StaticResource MessengerBlueBrush}" Stroke="{StaticResource HeaderBackgroundBrush}" StrokeThickness="2" HorizontalAlignment="Right" VerticalAlignment="Top" Visibility="{Binding IsUnread, Converter={StaticResource BooleanToVisibilityConverter}}"/></Grid>
+                      <StackPanel Grid.Column="1" Margin="8,0,6,0" VerticalAlignment="Center">
+                        <TextBlock Text="{Binding Title}" FontSize="16" FontWeight="{Binding TitleWeight}" TextTrimming="CharacterEllipsis"/>
+                        <TextBlock Text="{Binding Preview}" Foreground="{StaticResource MutedTextBrush}" FontSize="13" TextTrimming="CharacterEllipsis" Margin="0,2,0,0"/>
+                        <TextBlock Text="{Binding ParticipantSummary}" Foreground="{StaticResource MutedTextBrush}" FontSize="11" TextTrimming="CharacterEllipsis" Visibility="{Binding IsGroupChat, Converter={StaticResource BooleanToVisibilityConverter}}"/>
                       </StackPanel>
-                      <TextBlock Grid.Column="2" Text="{Binding TimeLabel}" Foreground="{StaticResource MutedTextBrush}" FontSize="13" Margin="6,4,0,0"/>
+                      <TextBlock Grid.Column="2" Text="{Binding TimeLabel}" Foreground="{StaticResource MutedTextBrush}" FontSize="12" Margin="5,3,0,0"/>
                     </Grid>
                   </DataTemplate>
                 </ListView.ItemTemplate>
@@ -88,29 +104,29 @@
                   <TextBlock Text="Choose a conversation" Foreground="{StaticResource MutedTextBrush}" FontSize="20" Margin="0,12,0,0"/>
                 </StackPanel>
               </Grid>
-              <ListView x:Name="MessagesList" Visibility="Collapsed" Padding="14,10" SelectionMode="None">
+              <ListView x:Name="MessagesList" Visibility="Collapsed" Padding="10,7" SelectionMode="None">
                 <ListView.ItemsPanel><ItemsPanelTemplate><StackPanel/></ItemsPanelTemplate></ListView.ItemsPanel>
                 <ListView.ItemContainerStyle><Style TargetType="ListViewItem"><Setter Property="HorizontalContentAlignment" Value="Stretch"/><Setter Property="Padding" Value="0"/></Style></ListView.ItemContainerStyle>
                 <ListView.ItemTemplate>
                   <DataTemplate>
-                    <StackPanel HorizontalAlignment="{Binding BubbleAlignment}" MaxWidth="520" Margin="0,4">
+                    <StackPanel HorizontalAlignment="{Binding BubbleAlignment}" MaxWidth="460" Margin="0,2">
                       <TextBlock Text="{Binding SenderName}" Visibility="{Binding ShowSenderName, Converter={StaticResource BooleanToVisibilityConverter}}" Foreground="{StaticResource MutedTextBrush}" FontSize="12" Margin="4,0,4,3" TextTrimming="CharacterEllipsis"/>
-                      <Border Background="{StaticResource MessengerBlueBrush}" CornerRadius="6" Padding="12,8"><StackPanel><Image Source="{Binding AttachmentUri}" Visibility="{Binding IsImageAttachment, Converter={StaticResource BooleanToVisibilityConverter}}" MaxWidth="300" MaxHeight="260" Stretch="Uniform" ImageFailed="AttachmentImage_Failed" ImageOpened="Media_Opened" Holding="Media_Holding" Tapped="Image_Tapped"/><Grid Holding="Media_Holding"><MediaElement Source="{Binding AttachmentUri}" Visibility="{Binding IsVideoAttachment, Converter={StaticResource BooleanToVisibilityConverter}}" AreTransportControlsEnabled="True" AutoPlay="False" MaxWidth="300" MaxHeight="260" MediaOpened="Media_Opened"/></Grid><RichTextBlock Visibility="{Binding HasText, Converter={StaticResource BooleanToVisibilityConverter}}" FontSize="16" TextWrapping="Wrap" Holding="Message_Holding" Loaded="MessageText_Loaded" DataContextChanged="MessageText_DataContextChanged" Margin="0,5,0,0"/><TextBlock Text="{Binding AttachmentLabel}" Visibility="{Binding HasNonPreviewAttachment, Converter={StaticResource BooleanToVisibilityConverter}}" Foreground="White" FontSize="12" Margin="0,5,0,0"/></StackPanel></Border>
+                      <Border Background="{Binding BubbleBrush}" CornerRadius="5" Padding="10,6"><StackPanel><Image Source="{Binding AttachmentUri}" Visibility="{Binding IsImageAttachment, Converter={StaticResource BooleanToVisibilityConverter}}" MaxWidth="270" MaxHeight="230" Stretch="Uniform" ImageFailed="AttachmentImage_Failed" ImageOpened="Media_Opened" Holding="Media_Holding" Tapped="Image_Tapped"/><Grid Holding="Media_Holding"><MediaElement Source="{Binding AttachmentUri}" Visibility="{Binding IsVideoAttachment, Converter={StaticResource BooleanToVisibilityConverter}}" AreTransportControlsEnabled="True" AutoPlay="False" MaxWidth="270" MaxHeight="230" MediaOpened="Media_Opened" MediaFailed="AttachmentMedia_Failed"/></Grid><RichTextBlock Visibility="{Binding HasText, Converter={StaticResource BooleanToVisibilityConverter}}" FontSize="15" TextWrapping="Wrap" Holding="Message_Holding" Loaded="MessageText_Loaded" DataContextChanged="MessageText_DataContextChanged" Margin="0,4,0,0"/><TextBlock Text="{Binding AttachmentLabel}" Visibility="{Binding HasNonPreviewAttachment, Converter={StaticResource BooleanToVisibilityConverter}}" Foreground="White" FontSize="11" Margin="0,4,0,0"/></StackPanel></Border>
                       <TextBlock Text="{Binding TimeLabel}" Foreground="{StaticResource MutedTextBrush}" FontSize="11" HorizontalAlignment="Right" Margin="0,3,2,0"/>
                     </StackPanel>
                   </DataTemplate>
                 </ListView.ItemTemplate>
               </ListView>
-              <Grid x:Name="Composer" Grid.Row="1" Visibility="Collapsed" Background="{StaticResource HeaderBackgroundBrush}" Padding="4,6" BorderBrush="{StaticResource AppBorderBrush}" BorderThickness="0,1,0,0">
+              <Grid x:Name="Composer" Grid.Row="1" Visibility="Collapsed" Background="{StaticResource HeaderBackgroundBrush}" Padding="3,4" BorderBrush="{StaticResource AppBorderBrush}" BorderThickness="0,1,0,0">
                 <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
-                <Grid.ColumnDefinitions><ColumnDefinition Width="48"/><ColumnDefinition Width="*"/><ColumnDefinition Width="48"/></Grid.ColumnDefinitions>
+                <Grid.ColumnDefinitions><ColumnDefinition x:Name="ComposerAttachColumn" Width="42"/><ColumnDefinition Width="*"/><ColumnDefinition x:Name="ComposerSendColumn" Width="42"/></Grid.ColumnDefinitions>
                 <Grid x:Name="AttachmentBannerHost" Grid.ColumnSpan="3" Visibility="Collapsed">
                   <TextBlock x:Name="SharedAttachmentBanner" Foreground="{StaticResource MutedTextBrush}" TextWrapping="Wrap" Margin="8,0,40,4"/>
                   <Button x:Name="ClearAttachmentButton" Style="{StaticResource HeaderIconButtonStyle}" Content="&#xE711;" Width="32" Height="32" FontSize="14" Click="ClearAttachment_Click" HorizontalAlignment="Right" VerticalAlignment="Top" AutomationProperties.Name="Remove queued attachment"/>
                 </Grid>
-                <Button x:Name="AttachButton" Grid.Row="1" Style="{StaticResource HeaderIconButtonStyle}" Width="48" Height="48" Content="&#xE723;" Click="Attach_Click" AutomationProperties.Name="Attach a file"/>
-                <TextBox x:Name="MessageBox" Grid.Row="1" Grid.Column="1" Style="{StaticResource ComposerTextBoxStyle}" PlaceholderText="Type a message" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="38" MaxHeight="124" Padding="6,7" FontSize="18" VerticalContentAlignment="Center" ScrollViewer.HorizontalScrollBarVisibility="Disabled" ScrollViewer.VerticalScrollBarVisibility="Auto" TextChanged="MessageBox_TextChanged" KeyDown="MessageBox_KeyDown"/>
-                <Button x:Name="SendButton" Grid.Row="1" Grid.Column="2" Style="{StaticResource HeaderIconButtonStyle}" Width="48" Height="48" Content="&#xE724;" Click="Send_Click" AutomationProperties.Name="Send message"/>
+                <Button x:Name="AttachButton" Grid.Row="1" Style="{StaticResource HeaderIconButtonStyle}" Width="42" Height="42" Content="&#xE723;" Click="Attach_Click" AutomationProperties.Name="Attach a file"/>
+                <TextBox x:Name="MessageBox" Grid.Row="1" Grid.Column="1" Style="{StaticResource ComposerTextBoxStyle}" PlaceholderText="Type a message" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="34" MaxHeight="104" Padding="5,5" FontSize="16" VerticalContentAlignment="Center" ScrollViewer.HorizontalScrollBarVisibility="Disabled" ScrollViewer.VerticalScrollBarVisibility="Auto" TextChanged="MessageBox_TextChanged" KeyDown="MessageBox_KeyDown"/>
+                <Button x:Name="SendButton" Grid.Row="1" Grid.Column="2" Style="{StaticResource HeaderIconButtonStyle}" Width="42" Height="42" Content="&#xE724;" Click="Send_Click" AutomationProperties.Name="Send message"/>
               </Grid>
             </Grid>
           </Grid>
@@ -160,6 +176,7 @@
             <TextBlock Text="Theme" FontSize="22"/>
             <ToggleSwitch x:Name="OledBlackToggle" Header="OLED black" OffContent="Off" OnContent="On" Toggled="ThemeToggle_Toggled" Margin="0,12,0,0"/>
             <ToggleSwitch x:Name="AccentColorToggle" Header="Use accent color" OffContent="Messenger blue" OnContent="Windows accent" Toggled="ThemeToggle_Toggled" Margin="0,12,0,0"/>
+            <ToggleSwitch x:Name="LargerUiToggle" Header="Larger UI" OffContent="Compact" OnContent="Large" Toggled="ThemeToggle_Toggled" Margin="0,12,0,0"/>
 
             <Border BorderBrush="{StaticResource AppBorderBrush}" BorderThickness="0,1,0,0" Margin="0,26,0,22"/>
             <TextBlock Text="Server details" FontSize="22"/>

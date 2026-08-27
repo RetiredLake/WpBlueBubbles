@@ -299,7 +299,9 @@ namespace WpBlueBubbles.Services
             using (var form = new MultipartFormDataContent())
             using (var image = new StreamContent(stream.AsStreamForRead()))
             {
-                image.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue(stream.ContentType);
+                var contentType = string.IsNullOrWhiteSpace(file.ContentType) ? stream.ContentType : file.ContentType;
+                if (string.IsNullOrWhiteSpace(contentType)) contentType = "application/octet-stream";
+                image.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue(contentType);
                 form.Add(image, "attachment", file.Name);
                 // Newer BlueBubbles servers can truncate semicolon-delimited chat GUIDs in multipart fields.
                 // Keep the GUID in the query string where it survives intact.

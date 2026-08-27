@@ -3,6 +3,20 @@
 All releases are beta software. Versions before v0.2.0.0 are retained as legacy
 builds and may contain bugs fixed by later releases.
 
+## v0.2.1.5 Beta
+
+- Added a GroupMe-inspired compact phone layout with an optional Larger UI mode.
+- Kept the Lumia keyboard focused while a message is sending and disabled input without removing focus.
+- Made physical-keyboard Enter send on PC and Shift+Enter add a line; mobile Return always adds a line.
+- Added clearer offline, unreachable-server, missing-conversation, send, rename, and delete errors.
+- Added multiple attachment selection and multi-file share-target sending.
+- Cached downloaded videos locally before playback and added an explicit unsupported-video error.
+- Made unread state phone-local and treats the initial post-setup chat list as read.
+- Sorted Chats newest-first and made search appear only when requested from the header.
+- Added a secondary Windows accent shade for sent messages while retaining Messenger blue otherwise.
+- Hardened legacy settings migration so malformed values cannot repeatedly crash startup.
+- Corrected the phone QR camera preview rotation.
+
 ## v0.2.1.0 Beta
 
 - Reorganized connected Settings into Sync, Theme, Server details, Reset, and Credits sections.
