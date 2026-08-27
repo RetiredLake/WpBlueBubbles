@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using Windows.Data.Json;
+using Windows.UI.Xaml.Media;
 
 namespace WpBlueBubbles.Models
 {
@@ -19,6 +20,9 @@ namespace WpBlueBubbles.Models
         public long LastMessageTimestamp { get; set; }
         public string LastMessageGuid { get; set; }
         public bool LastMessageIsFromMe { get; set; }
+        public ImageSource AvatarSource { get; set; }
+        public bool HasAvatar { get { return AvatarSource != null; } }
+        public bool ShowInitials { get { return AvatarSource == null; } }
 
         public static ChatItem FromJson(JsonObject json)
         {
@@ -75,20 +79,23 @@ namespace WpBlueBubbles.Models
             };
         }
 
-        public void ApplyContactNames(IReadOnlyDictionary<string, string> names)
+        public void ApplyContactData(IReadOnlyDictionary<string, string> names, IReadOnlyDictionary<string, ImageSource> images)
         {
             if (ParticipantAddresses == null || ParticipantAddresses.Count == 0) return;
             var resolved = ParticipantAddresses.Select(address => WpBlueBubbles.Services.ContactsService.Lookup(names, address)).Where(name => !string.IsNullOrWhiteSpace(name)).ToList();
-            if (resolved.Count == 0) return;
-            if (IsGroupChat)
+            if (resolved.Count > 0 && IsGroupChat)
             {
                 ParticipantSummary = string.Join(", ", resolved);
                 if (Title.IndexOf("@", StringComparison.Ordinal) >= 0 || Title.IndexOf("+", StringComparison.Ordinal) >= 0) Title = ParticipantSummary;
             }
-            else
+            else if (resolved.Count > 0)
             {
                 Title = resolved[0];
                 ParticipantSummary = resolved[0];
+            }
+            if (!IsGroupChat && images != null)
+            {
+                AvatarSource = ParticipantAddresses.Select(address => WpBlueBubbles.Services.ContactsService.LookupImage(images, address)).FirstOrDefault(image => image != null);
             }
             Initials = MakeInitials(Title);
         }

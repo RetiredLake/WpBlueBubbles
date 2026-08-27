@@ -65,7 +65,7 @@
                   <DataTemplate>
                     <Grid Padding="16,10">
                       <Grid.ColumnDefinitions><ColumnDefinition Width="54"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-                      <Border Width="44" Height="44" CornerRadius="22" Background="{StaticResource MessengerBlueBrush}" VerticalAlignment="Center"><TextBlock Text="{Binding Initials}" FontSize="16" HorizontalAlignment="Center" VerticalAlignment="Center"/></Border>
+                      <Border Width="44" Height="44" CornerRadius="22" Background="{StaticResource MessengerBlueBrush}" VerticalAlignment="Center"><Grid><Image Source="{Binding AvatarSource}" Stretch="UniformToFill" Visibility="{Binding HasAvatar, Converter={StaticResource BooleanToVisibilityConverter}}"/><TextBlock Text="{Binding Initials}" FontSize="16" HorizontalAlignment="Center" VerticalAlignment="Center" Visibility="{Binding ShowInitials, Converter={StaticResource BooleanToVisibilityConverter}}"/></Grid></Border>
                       <StackPanel Grid.Column="1" Margin="12,0,8,0" VerticalAlignment="Center">
                         <TextBlock Text="{Binding Title}" FontSize="18" TextTrimming="CharacterEllipsis"/>
                         <TextBlock Text="{Binding Preview}" Foreground="{StaticResource MutedTextBrush}" FontSize="14" TextTrimming="CharacterEllipsis" Margin="0,3,0,0"/>
@@ -94,21 +94,21 @@
                 <ListView.ItemTemplate>
                   <DataTemplate>
                     <StackPanel HorizontalAlignment="{Binding BubbleAlignment}" MaxWidth="520" Margin="0,4">
-                      <Border Background="{Binding BubbleBrush}" CornerRadius="6" Padding="12,8"><StackPanel><Image Source="{Binding AttachmentUri}" Visibility="{Binding IsImageAttachment, Converter={StaticResource BooleanToVisibilityConverter}}" MaxWidth="300" MaxHeight="260" Stretch="Uniform" ImageFailed="AttachmentImage_Failed" Holding="Media_Holding"/><Grid Holding="Media_Holding"><MediaElement Source="{Binding AttachmentUri}" Visibility="{Binding IsVideoAttachment, Converter={StaticResource BooleanToVisibilityConverter}}" AreTransportControlsEnabled="True" AutoPlay="False" MaxWidth="300" MaxHeight="260"/></Grid><RichTextBlock Visibility="{Binding HasText, Converter={StaticResource BooleanToVisibilityConverter}}" FontSize="16" TextWrapping="Wrap" Holding="Message_Holding" Loaded="MessageText_Loaded" DataContextChanged="MessageText_DataContextChanged" Margin="0,5,0,0"/><TextBlock Text="{Binding AttachmentLabel}" Visibility="{Binding HasNonPreviewAttachment, Converter={StaticResource BooleanToVisibilityConverter}}" Foreground="{StaticResource MutedTextBrush}" FontSize="12" Margin="0,5,0,0"/></StackPanel></Border>
+                      <Border Background="{Binding BubbleBrush}" CornerRadius="6" Padding="12,8"><StackPanel><Image Source="{Binding AttachmentUri}" Visibility="{Binding IsImageAttachment, Converter={StaticResource BooleanToVisibilityConverter}}" MaxWidth="300" MaxHeight="260" Stretch="Uniform" ImageFailed="AttachmentImage_Failed" ImageOpened="Media_Opened" Holding="Media_Holding"/><Grid Holding="Media_Holding"><MediaElement Source="{Binding AttachmentUri}" Visibility="{Binding IsVideoAttachment, Converter={StaticResource BooleanToVisibilityConverter}}" AreTransportControlsEnabled="True" AutoPlay="False" MaxWidth="300" MaxHeight="260" MediaOpened="Media_Opened"/></Grid><RichTextBlock Visibility="{Binding HasText, Converter={StaticResource BooleanToVisibilityConverter}}" FontSize="16" TextWrapping="Wrap" Holding="Message_Holding" Loaded="MessageText_Loaded" DataContextChanged="MessageText_DataContextChanged" Margin="0,5,0,0"/><TextBlock Text="{Binding AttachmentLabel}" Visibility="{Binding HasNonPreviewAttachment, Converter={StaticResource BooleanToVisibilityConverter}}" Foreground="{StaticResource MutedTextBrush}" FontSize="12" Margin="0,5,0,0"/></StackPanel></Border>
                       <TextBlock Text="{Binding TimeLabel}" Foreground="{StaticResource MutedTextBrush}" FontSize="11" HorizontalAlignment="Right" Margin="0,3,2,0"/>
                     </StackPanel>
                   </DataTemplate>
                 </ListView.ItemTemplate>
               </ListView>
               <Grid x:Name="Composer" Grid.Row="1" Visibility="Collapsed" Background="#09141B" Padding="4,6" BorderBrush="#33434C" BorderThickness="0,1,0,0">
-                <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="52"/></Grid.RowDefinitions>
+                <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
                 <Grid.ColumnDefinitions><ColumnDefinition Width="48"/><ColumnDefinition Width="*"/><ColumnDefinition Width="48"/></Grid.ColumnDefinitions>
                 <Grid x:Name="AttachmentBannerHost" Grid.ColumnSpan="3" Visibility="Collapsed">
                   <TextBlock x:Name="SharedAttachmentBanner" Foreground="{StaticResource MutedTextBrush}" TextWrapping="Wrap" Margin="8,0,40,4"/>
                   <Button x:Name="ClearAttachmentButton" Style="{StaticResource HeaderIconButtonStyle}" Content="&#xE711;" Width="32" Height="32" FontSize="14" Click="ClearAttachment_Click" HorizontalAlignment="Right" VerticalAlignment="Top" AutomationProperties.Name="Remove queued attachment"/>
                 </Grid>
                 <Button x:Name="AttachButton" Grid.Row="1" Style="{StaticResource HeaderIconButtonStyle}" Width="48" Height="48" Content="&#xE723;" Click="Attach_Click" AutomationProperties.Name="Attach a file"/>
-                <TextBox x:Name="MessageBox" Grid.Row="1" Grid.Column="1" Style="{StaticResource ComposerTextBoxStyle}" PlaceholderText="Type a message" AcceptsReturn="False" TextWrapping="NoWrap" Padding="4,0" FontSize="18" VerticalContentAlignment="Center" KeyDown="MessageBox_KeyDown"/>
+                <TextBox x:Name="MessageBox" Grid.Row="1" Grid.Column="1" Style="{StaticResource ComposerTextBoxStyle}" PlaceholderText="Type a message" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="38" MaxHeight="124" Padding="6,7" FontSize="18" VerticalContentAlignment="Center" ScrollViewer.HorizontalScrollBarVisibility="Disabled" ScrollViewer.VerticalScrollBarVisibility="Auto" KeyDown="MessageBox_KeyDown"/>
                 <Button x:Name="SendButton" Grid.Row="1" Grid.Column="2" Style="{StaticResource HeaderIconButtonStyle}" Width="48" Height="48" Content="&#xE724;" Click="Send_Click" AutomationProperties.Name="Send message"/>
               </Grid>
             </Grid>
@@ -164,7 +164,7 @@
           <StackPanel Margin="0,26,0,0">
           <TextBlock Text="Credits" FontSize="16" Foreground="{StaticResource MutedTextBrush}"/>
             <HyperlinkButton Content="developed by retiredlake.com" NavigateUri="https://retiredlake.com" HorizontalAlignment="Left" Padding="0"/>
-            <TextBlock Text="v0.1.9.8" Foreground="{StaticResource MutedTextBrush}" FontSize="14" Margin="0,2,0,0"/>
+            <TextBlock Text="v0.1.9.9" Foreground="{StaticResource MutedTextBrush}" FontSize="14" Margin="0,2,0,0"/>
           </StackPanel>
           <TextBlock x:Name="ConnectError" Foreground="#FFFF8C82" TextWrapping="Wrap"/>
         </StackPanel>
@@ -187,7 +187,7 @@
           <StackPanel Grid.Row="1"><Button Content="Choose contact" Click="ChooseContact_Click" HorizontalAlignment="Left" Margin="0,8,0,0"/><TextBlock x:Name="ComposeHint" Foreground="{StaticResource MutedTextBrush}" TextWrapping="Wrap" Margin="0,10,0,0" Text="Enter a phone number or email address, then write a message."/><TextBlock x:Name="SharedComposePreview" Foreground="{StaticResource MutedTextBrush}" TextWrapping="Wrap" Margin="0,8,0,0" Visibility="Collapsed"/></StackPanel>
           <ListView x:Name="RecipientMatchesList" Grid.Row="2" IsItemClickEnabled="True" ItemClick="RecipientMatchesList_ItemClick" SelectionMode="None" Margin="0,12,0,0"><ListView.ItemTemplate><DataTemplate><TextBlock Text="{Binding Title}" FontSize="18" Padding="8" TextTrimming="CharacterEllipsis"/></DataTemplate></ListView.ItemTemplate></ListView>
         </Grid>
-        <Grid Grid.Row="2" Background="#09141B" Padding="4,6" BorderBrush="#33434C" BorderThickness="0,1,0,0"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="52"/></Grid.ColumnDefinitions><TextBox x:Name="ComposeMessageBox" Style="{StaticResource ComposerTextBoxStyle}" PlaceholderText="Type a message" AcceptsReturn="False" TextWrapping="NoWrap" Padding="12,0" FontSize="18" VerticalContentAlignment="Center" KeyDown="ComposeMessageBox_KeyDown"/><Button Grid.Column="1" Style="{StaticResource HeaderIconButtonStyle}" Content="&#xE724;" Click="ComposeSend_Click" AutomationProperties.Name="Send new message"/></Grid>
+        <Grid Grid.Row="2" Background="#09141B" Padding="4,6" BorderBrush="#33434C" BorderThickness="0,1,0,0"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="52"/></Grid.ColumnDefinitions><TextBox x:Name="ComposeMessageBox" Style="{StaticResource ComposerTextBoxStyle}" PlaceholderText="Type a message" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="38" MaxHeight="124" Padding="12,7" FontSize="18" VerticalContentAlignment="Center" ScrollViewer.HorizontalScrollBarVisibility="Disabled" ScrollViewer.VerticalScrollBarVisibility="Auto" KeyDown="ComposeMessageBox_KeyDown"/><Button x:Name="ComposeSendButton" Grid.Column="1" Style="{StaticResource HeaderIconButtonStyle}" Content="&#xE724;" Click="ComposeSend_Click" AutomationProperties.Name="Send new message"/></Grid>
       </Grid>
     </Grid>
 
@@ -200,7 +200,7 @@
           <TextBox x:Name="ContactsSearchBox" PlaceholderText="Search contacts" TextChanged="ContactsSearchBox_TextChanged" Margin="0,14,0,4"/>
         </StackPanel>
         <ListView x:Name="ContactsList" Grid.Row="2" IsItemClickEnabled="True" ItemClick="ContactsList_ItemClick" SelectionMode="None" Padding="18,0">
-          <ListView.ItemTemplate><DataTemplate><StackPanel Padding="8"><TextBlock Text="{Binding DisplayName}" FontSize="18" TextTrimming="CharacterEllipsis"/><TextBlock Text="{Binding Address}" Foreground="{StaticResource MutedTextBrush}" TextTrimming="CharacterEllipsis"/><TextBlock Text="{Binding Kind}" Foreground="{StaticResource MutedTextBrush}" FontSize="12"/></StackPanel></DataTemplate></ListView.ItemTemplate>
+          <ListView.ItemTemplate><DataTemplate><Grid Padding="8"><Grid.ColumnDefinitions><ColumnDefinition Width="52"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions><Border Width="42" Height="42" CornerRadius="21" Background="{StaticResource MessengerBlueBrush}" VerticalAlignment="Center"><Grid><Image Source="{Binding AvatarSource}" Stretch="UniformToFill" Visibility="{Binding HasAvatar, Converter={StaticResource BooleanToVisibilityConverter}}"/><TextBlock Text="{Binding Initials}" HorizontalAlignment="Center" VerticalAlignment="Center" Visibility="{Binding ShowInitials, Converter={StaticResource BooleanToVisibilityConverter}}"/></Grid></Border><StackPanel Grid.Column="1"><TextBlock Text="{Binding DisplayName}" FontSize="18" TextTrimming="CharacterEllipsis"/><TextBlock Text="{Binding Address}" Foreground="{StaticResource MutedTextBrush}" TextTrimming="CharacterEllipsis"/><TextBlock Text="{Binding Kind}" Foreground="{StaticResource MutedTextBrush}" FontSize="12"/></StackPanel></Grid></DataTemplate></ListView.ItemTemplate>
         </ListView>
       </Grid>
     </Grid>

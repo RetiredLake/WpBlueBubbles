@@ -50,6 +50,7 @@ namespace WpBlueBubbles
         private int _messagesPerChat = 15;
         private int _syncTimeframeDays = 7;
         private IReadOnlyDictionary<string, string> _contactNames = new Dictionary<string, string>();
+        private IReadOnlyDictionary<string, ImageSource> _contactImages = new Dictionary<string, ImageSource>();
         private ShareOperation _shareOperation;
         private StorageFile _sharedFile;
         private string _sharedText;
@@ -61,6 +62,7 @@ namespace WpBlueBubbles
         private bool _settingsLoaded;
         private string _chatStateSignature;
         private int _messageLoadGeneration;
+        private DateTimeOffset _pinMessagesToBottomUntil;
         private static readonly bool UseLegacyInAppSyncStatus = false;
         private static readonly bool UsePhoneSyncStatus = false;
 
@@ -209,7 +211,7 @@ namespace WpBlueBubbles
         {
             if (_client == null) return false;
             var chats = await _client.GetChatsAsync();
-            foreach (var chat in chats) chat.ApplyContactNames(_contactNames);
+            foreach (var chat in chats) chat.ApplyContactData(_contactNames, _contactImages);
             var signature = BuildChatStateSignature(chats);
             if (signature == _chatStateSignature) return false;
             var selectedGuid = _selectedChat == null ? null : _selectedChat.Guid;
@@ -255,6 +257,7 @@ namespace WpBlueBubbles
             var newLastGuid = received.Count == 0 ? null : received[received.Count - 1].Guid;
             if (!forceScroll && priorLastGuid == newLastGuid && _messages.Count == received.Count) return;
             var total = received.Count;
+            _pinMessagesToBottomUntil = DateTimeOffset.Now.AddSeconds(forceScroll ? 15 : 4);
             SetSyncing(true, "Syncing messages: 0 of " + total);
             ResetMessageItems();
             for (var i = 0; i < total; i++)
@@ -596,30 +599,48 @@ namespace WpBlueBubbles
             if (_composeSelectedChat == null && string.IsNullOrWhiteSpace(recipient)) { ShowStatus("Enter a phone number or email address.", true); return; }
             if (_composeSelectedChat == null && string.IsNullOrWhiteSpace(message)) { ShowStatus("Write a message before starting a new conversation with an attachment.", true); return; }
 
+            var sent = false;
+            ComposeSendButton.IsEnabled = false;
+            ComposeMessageBox.IsEnabled = false;
+            RecipientBox.IsEnabled = false;
             try
             {
                 SetSyncing(true, "Sending message...");
                 ChatItem chat = _composeSelectedChat;
                 if (chat == null) chat = await _client.CreateChatAsync(recipient, message);
                 else if (!string.IsNullOrWhiteSpace(message)) await _client.SendTextAsync(chat.Guid, message);
-                if (chat == null) throw new InvalidOperationException("BlueBubbles did not return the new conversation.");
+                if (chat == null || string.IsNullOrWhiteSpace(chat.Guid)) throw new InvalidOperationException("BlueBubbles sent the message but did not return the conversation.");
                 if (_sharedFile != null) await _client.SendAttachmentAsync(chat.Guid, _sharedFile);
+                sent = true;
+                if (string.IsNullOrWhiteSpace(chat.Title)) chat.Title = string.IsNullOrWhiteSpace(recipient) ? "Conversation" : recipient;
                 ComposeOverlay.Visibility = Visibility.Collapsed;
-                if (_shareOperation != null) CompleteSharedContent();
-                await RefreshChatsAsync();
                 _messageLoadGeneration++;
                 ResetMessageItems();
-                _selectedChat = _allChats.FirstOrDefault(item => item.Guid == chat.Guid) ?? chat;
+                _selectedChat = chat;
                 PageTitle.Text = _selectedChat.Title;
                 EmptyConversation.Visibility = Visibility.Collapsed;
                 MessagesList.Visibility = Visibility.Visible;
                 Composer.Visibility = Visibility.Visible;
                 UpdateHeaderActions(true);
                 if (UseSinglePaneLayout) ReturnToConversation();
+                ComposeMessageBox.Text = string.Empty;
+                CompleteSharedContent();
+                await RefreshChatsAsync();
+                _selectedChat = _allChats.FirstOrDefault(item => item.Guid == chat.Guid) ?? _selectedChat;
+                PageTitle.Text = _selectedChat.Title;
                 await RefreshMessagesAsync(true);
             }
-            catch (Exception ex) { ShowStatus(ex.Message, true); }
-            finally { SetSyncing(false, null); }
+            catch (Exception ex)
+            {
+                ShowStatus((sent ? "Message was sent, but the conversation could not refresh: " : string.Empty) + ex.Message, true);
+            }
+            finally
+            {
+                ComposeSendButton.IsEnabled = true;
+                ComposeMessageBox.IsEnabled = true;
+                RecipientBox.IsEnabled = true;
+                SetSyncing(false, null);
+            }
         }
 
         private async void ChooseContact_Click(object sender, RoutedEventArgs e)
@@ -991,13 +1012,15 @@ namespace WpBlueBubbles
                 _allContacts.Clear();
                 _allContacts.AddRange(contacts);
                 ApplyContactsSearch();
-                _contactNames = await service.LoadNamesAsync();
+                _contactNames = ContactsService.BuildNames(contacts);
+                _contactImages = ContactsService.BuildImages(contacts);
             }
             catch
             {
                 _allContacts.Clear();
                 _contacts.Clear();
                 _contactNames = new Dictionary<string, string>();
+                _contactImages = new Dictionary<string, ImageSource>();
             }
         }
 
@@ -1085,6 +1108,11 @@ namespace WpBlueBubbles
             var image = sender as Image;
             var message = image?.DataContext as MessageItem;
             if (message != null) message.MarkAttachmentFailed();
+        }
+
+        private async void Media_Opened(object sender, RoutedEventArgs e)
+        {
+            if (DateTimeOffset.Now <= _pinMessagesToBottomUntil) await ScrollToNewestMessageAsync();
         }
 
         private void ShowStatus(string message, bool isError)

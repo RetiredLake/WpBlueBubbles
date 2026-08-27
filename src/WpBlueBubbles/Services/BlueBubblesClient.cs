@@ -123,7 +123,12 @@ namespace WpBlueBubbles.Services
             };
             var root = await PostRootAsync("chat/new", body);
             JsonObject data;
-            return JsonValueReader.TryObject(root, "data", out data) ? ChatItem.FromJson(data) : null;
+            if (!JsonValueReader.TryObject(root, "data", out data)) return null;
+            JsonObject chat;
+            if (JsonValueReader.TryObject(data, "chat", out chat)) return ChatItem.FromJson(chat);
+            JsonArray chats;
+            if (JsonValueReader.TryArray(data, "chats", out chats) && chats.Count > 0 && chats[0].ValueType == JsonValueType.Object) return ChatItem.FromJson(chats[0].GetObject());
+            return ChatItem.FromJson(data);
         }
 
         public async Task DeleteChatAsync(string chatGuid)
