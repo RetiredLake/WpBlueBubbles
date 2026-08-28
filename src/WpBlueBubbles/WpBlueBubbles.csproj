@@ -44,6 +44,7 @@
     <Compile Include="Models\ChatItem.cs" />
     <Compile Include="Models\MessageItem.cs" />
     <Compile Include="Services\BlueBubblesClient.cs" />
+    <Compile Include="Services\GitHubUpdateService.cs" />
     <Compile Include="Services\ContactsService.cs" />
     <Compile Include="Services\NotificationService.cs" />
     <Compile Include="Services\NotificationStateStore.cs" />

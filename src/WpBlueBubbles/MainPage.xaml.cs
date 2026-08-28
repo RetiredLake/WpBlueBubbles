@@ -63,6 +63,7 @@ namespace WpBlueBubbles
         private readonly List<StorageFile> _sharedFiles = new List<StorageFile>();
         private readonly List<StorageFile> _shareTemporaryFiles = new List<StorageFile>();
         private string _sharedText;
+        private bool _isForwarding;
         private bool _showArchived;
         private ChatItem _composeSelectedChat;
         private bool _updatingRecipient;
@@ -83,6 +84,8 @@ namespace WpBlueBubbles
         private int _availabilityGeneration;
         private string _composeService;
         private bool _contextMenuOpen;
+        private AppThemeMode _themeMode = AppThemeMode.System;
+        private readonly UISettings _uiSettings = new UISettings();
         private static readonly bool UseLegacyInAppSyncStatus = false;
         private static readonly bool UsePhoneSyncStatus = false;
 
@@ -107,6 +110,8 @@ namespace WpBlueBubbles
             SystemNavigationManager.GetForCurrentView().BackRequested += MainPage_BackRequested;
             _inputPane.Showing += InputPane_Showing;
             _inputPane.Hiding += InputPane_Hiding;
+            Window.Current.CoreWindow.CharacterReceived += CoreWindow_CharacterReceived;
+            _uiSettings.ColorValuesChanged += UiSettings_ColorValuesChanged;
             MessageBox.AddHandler(UIElement.KeyDownEvent, new KeyEventHandler(MessageBox_KeyDown), true);
             ComposeMessageBox.AddHandler(UIElement.KeyDownEvent, new KeyEventHandler(ComposeMessageBox_KeyDown), true);
         }
@@ -128,14 +133,17 @@ namespace WpBlueBubbles
                 SettingsStore.EnsureVersion019Defaults();
                 settings = SettingsStore.Load();
             }
-            OledBlackToggle.IsOn = settings.OledBlack;
+            _themeMode = settings.ThemeMode;
+            SelectThemeMode(_themeMode);
             AccentColorToggle.IsOn = settings.UseAccentColor;
             LargerUiToggle.IsOn = settings.LargerUi;
             SendReadReceiptsToggle.IsOn = settings.SendReadReceipts;
             DeveloperModeToggle.IsOn = settings.DeveloperMode;
             _pollTimer.Interval = TimeSpan.FromSeconds(settings.PollIntervalSeconds);
-            ApplyTheme(settings.OledBlack, settings.UseAccentColor, settings.LargerUi);
+            ApplyTheme(settings.ThemeMode, settings.UseAccentColor, settings.LargerUi);
             SetPackageVersion();
+            try { await new GitHubUpdateService().CleanupAsync(); }
+            catch { }
             UpdateServerDetails(settings.Address);
             ServerAddressBox.Text = settings.Address ?? string.Empty;
             ServerPasswordBox.Password = string.Empty;
@@ -171,6 +179,8 @@ namespace WpBlueBubbles
             SystemNavigationManager.GetForCurrentView().BackRequested -= MainPage_BackRequested;
             _inputPane.Showing -= InputPane_Showing;
             _inputPane.Hiding -= InputPane_Hiding;
+            Window.Current.CoreWindow.CharacterReceived -= CoreWindow_CharacterReceived;
+            _uiSettings.ColorValuesChanged -= UiSettings_ColorValuesChanged;
         }
 
         private void MainPage_SizeChanged(object sender, SizeChangedEventArgs e) { UpdateResponsiveLayout(); }
@@ -425,18 +435,42 @@ namespace WpBlueBubbles
         private async void Send_Click(object sender, RoutedEventArgs e) { await SendCurrentMessageAsync(); }
         private async void MessageBox_KeyDown(object sender, KeyRoutedEventArgs e)
         {
-            if (ShouldSendOnEnter(e))
-            {
-                e.Handled = true;
-                await SendCurrentMessageAsync();
-            }
+            if (!IsDesktopEnter(e)) return;
+            if (IsShiftDown()) return;
+            e.Handled = true;
+            await SendCurrentMessageAsync();
         }
 
-        private bool ShouldSendOnEnter(KeyRoutedEventArgs e)
+        private static bool IsDesktopEnter(KeyRoutedEventArgs e)
         {
-            if (e.Key != VirtualKey.Enter) return false;
-            if (string.Equals(AnalyticsInfo.DeviceForm, "Phone", StringComparison.OrdinalIgnoreCase)) return false;
-            return !Window.Current.CoreWindow.GetKeyState(VirtualKey.Shift).HasFlag(CoreVirtualKeyStates.Down);
+            return e.Key == VirtualKey.Enter && !string.Equals(AnalyticsInfo.DeviceForm, "Phone", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static bool IsShiftDown()
+        {
+            return Window.Current.CoreWindow.GetKeyState(VirtualKey.Shift).HasFlag(CoreVirtualKeyStates.Down);
+        }
+
+        private async void CoreWindow_CharacterReceived(CoreWindow sender, CharacterReceivedEventArgs args)
+        {
+            if (_selectedChat == null || Composer.Visibility != Visibility.Visible || ComposeOverlay.Visibility == Visibility.Visible || SettingsOverlay.Visibility == Visibility.Visible || ContactsOverlay.Visibility == Visibility.Visible || QrScannerOverlay.Visibility == Visibility.Visible) return;
+            if (IsTextEntryControl(FocusManager.GetFocusedElement())) return;
+            if (sender.GetKeyState(VirtualKey.Control).HasFlag(CoreVirtualKeyStates.Down) || sender.GetKeyState(VirtualKey.Menu).HasFlag(CoreVirtualKeyStates.Down) || sender.GetKeyState(VirtualKey.LeftWindows).HasFlag(CoreVirtualKeyStates.Down) || sender.GetKeyState(VirtualKey.RightWindows).HasFlag(CoreVirtualKeyStates.Down)) return;
+            var codePoint = args.KeyCode;
+            if (codePoint < 32 || codePoint == 127 || codePoint > 0x10FFFF) return;
+            await Dispatcher.RunAsync(CoreDispatcherPriority.Normal, () =>
+            {
+                MessageBox.Focus(FocusState.Programmatic);
+                var text = char.ConvertFromUtf32((int)codePoint);
+                var start = Math.Max(0, MessageBox.SelectionStart);
+                MessageBox.Text = MessageBox.Text.Insert(start, text);
+                MessageBox.SelectionStart = start + text.Length;
+            });
+        }
+
+        private static bool IsTextEntryControl(object focused)
+        {
+            return focused is TextBox || focused is PasswordBox || focused is RichEditBox;
         }
 
         private bool ShouldRefocusAfterSend
@@ -645,76 +679,140 @@ namespace WpBlueBubbles
 
         private void ShowMessageContextMenu(FrameworkElement element, MessageItem message)
         {
-            if (_contextMenuOpen || element == null || message == null || string.IsNullOrWhiteSpace(message.Text)) return;
-            ShowDarkActionFlyout(element, "Copy", () =>
+            if (_contextMenuOpen || element == null || message == null) return;
+            var actions = new List<Tuple<string, Func<Task>, string>>();
+            if (_serverCapabilities.CanUsePrivateApi && _client != null && _selectedChat != null && !string.IsNullOrWhiteSpace(_selectedChat.Guid) && !string.IsNullOrWhiteSpace(message.Guid))
             {
-                var data = new DataPackage();
-                data.SetText(message.Text);
-                Clipboard.SetContent(data);
-                Clipboard.Flush();
-                return Task.CompletedTask;
-            }, "copy the message");
-        }
-
-        private void Media_Holding(object sender, HoldingRoutedEventArgs e)
-        {
-            if (e.HoldingState != HoldingState.Started) return;
-            e.Handled = true;
-            var element = sender as FrameworkElement;
-            ShowMediaContextMenu(element, element?.DataContext as MessageItem);
-        }
-
-        private void Media_RightTapped(object sender, RightTappedRoutedEventArgs e)
-        {
-            e.Handled = true;
-            var element = sender as FrameworkElement;
-            ShowMediaContextMenu(element, element?.DataContext as MessageItem);
-        }
-
-        private void ShowMediaContextMenu(FrameworkElement element, MessageItem message)
-        {
-            if (_contextMenuOpen || _client == null || element == null || message == null || string.IsNullOrWhiteSpace(message.AttachmentGuid)) return;
-            ShowDarkActionFlyout(element, "Save", async () =>
+                actions.Add(Tuple.Create<string, Func<Task>, string>("Delete", () => DeleteMessageAsync(message), "delete the message"));
+            }
+            if (message.HasText || message.HasAttachments)
             {
-                var bytes = await _client.DownloadAttachmentAsync(message.AttachmentGuid);
-                var file = await KnownFolders.PicturesLibrary.CreateFileAsync(GetMediaFileName(message), CreationCollisionOption.GenerateUniqueName);
-                await FileIO.WriteBytesAsync(file, bytes);
-                await new MessageDialog("Saved to Pictures.", "BlueBubbles").ShowAsync();
-            }, "save the media");
+                actions.Add(Tuple.Create<string, Func<Task>, string>("Forward", () => ForwardMessageAsync(message), "forward the message"));
+            }
+            if (message.HasText)
+            {
+                actions.Add(Tuple.Create<string, Func<Task>, string>("Copy", () =>
+                {
+                    var data = new DataPackage();
+                    data.SetText(message.Text);
+                    Clipboard.SetContent(data);
+                    Clipboard.Flush();
+                    return Task.CompletedTask;
+                }, "copy the message"));
+            }
+            var image = message.Attachments.FirstOrDefault(item => item.IsImage);
+            if (image != null || message.IsImageAttachment)
+            {
+                actions.Add(Tuple.Create<string, Func<Task>, string>("Save", () => SaveImageAsync(message, image), "save the image"));
+            }
+            if (actions.Count > 0) ShowDarkActionFlyout(element, actions);
         }
 
-        private void ShowDarkActionFlyout(FrameworkElement element, string label, Func<Task> action, string errorAction)
+        private void ShowDarkActionFlyout(FrameworkElement element, IReadOnlyList<Tuple<string, Func<Task>, string>> actions)
         {
             _contextMenuOpen = true;
-            var button = new Button
-            {
-                Content = label,
-                Background = new SolidColorBrush(Windows.UI.Colors.Black),
-                Foreground = new SolidColorBrush(Windows.UI.Colors.White),
-                BorderThickness = new Thickness(0),
-                Padding = new Thickness(16, 9, 16, 9),
-                MinWidth = 74,
-                HorizontalContentAlignment = HorizontalAlignment.Left
-            };
+            var content = new StackPanel { Width = LargerUiToggle.IsOn ? 192 : 168, Background = new SolidColorBrush(Windows.UI.Colors.Black) };
             var presenterStyle = new Style(typeof(FlyoutPresenter));
             presenterStyle.Setters.Add(new Setter(Control.BackgroundProperty, new SolidColorBrush(Windows.UI.Colors.Black)));
             presenterStyle.Setters.Add(new Setter(Control.ForegroundProperty, new SolidColorBrush(Windows.UI.Colors.White)));
             presenterStyle.Setters.Add(new Setter(Control.PaddingProperty, new Thickness(0)));
-            var flyout = new Flyout { Content = button, Placement = FlyoutPlacementMode.Top, FlyoutPresenterStyle = presenterStyle };
+            var flyout = new Flyout { Content = content, Placement = FlyoutPlacementMode.Top, FlyoutPresenterStyle = presenterStyle };
             flyout.Closed += (sender, args) => _contextMenuOpen = false;
-            button.Click += async (sender, args) =>
+            foreach (var choice in actions)
             {
-                button.IsEnabled = false;
-                try { await action(); }
-                catch (Exception ex) { ShowStatus(FriendlyError(ex, errorAction), true); }
-                finally { flyout.Hide(); }
-            };
+                var button = new Button
+                {
+                    Content = choice.Item1,
+                    Width = content.Width,
+                    Background = new SolidColorBrush(Windows.UI.Colors.Black),
+                    Foreground = new SolidColorBrush(Windows.UI.Colors.White),
+                    BorderThickness = new Thickness(0),
+                    Padding = new Thickness(16, 10, 16, 10),
+                    HorizontalContentAlignment = HorizontalAlignment.Left
+                };
+                button.Click += async (sender, args) =>
+                {
+                    flyout.Hide();
+                    await Task.Delay(40);
+                    try { await choice.Item2(); }
+                    catch (Exception ex) { ShowStatus(FriendlyError(ex, choice.Item3), true); }
+                };
+                content.Children.Add(button);
+            }
             try { flyout.ShowAt(element); }
             catch (Exception ex)
             {
                 _contextMenuOpen = false;
                 ShowStatus(FriendlyError(ex, "open the message menu"), true);
             }
+        }
+
+        private async Task DeleteMessageAsync(MessageItem message)
+        {
+            if (_client == null || _selectedChat == null || !_serverCapabilities.CanUsePrivateApi) return;
+            var dialog = new MessageDialog("Delete this message permanently from the BlueBubbles server? This cannot be undone. It will not unsend the message from other participants.", "Delete message?");
+            var confirm = new UICommand("Delete permanently");
+            dialog.Commands.Add(confirm);
+            dialog.Commands.Add(new UICommand("Cancel"));
+            dialog.DefaultCommandIndex = 1;
+            dialog.CancelCommandIndex = 1;
+            if (await dialog.ShowAsync() != confirm) return;
+            await _client.DeleteMessageAsync(_selectedChat.Guid, message.Guid);
+            _messages.Remove(message);
+            _chatStateSignature = null;
+            await RefreshChatsAsync();
+        }
+
+        private async Task ForwardMessageAsync(MessageItem message)
+        {
+            if (_client == null) return;
+            ClearSharedContent();
+            _isForwarding = true;
+            _sharedText = message.HasText ? message.Text : null;
+            try
+            {
+                var folder = await ApplicationData.Current.TemporaryFolder.CreateFolderAsync("ForwardedMessages", CreationCollisionOption.OpenIfExists);
+                foreach (var attachment in message.Attachments)
+                {
+                    if (string.IsNullOrWhiteSpace(attachment.Guid)) continue;
+                    var file = await folder.CreateFileAsync(GetAttachmentFileName(attachment, message.Guid), CreationCollisionOption.GenerateUniqueName);
+                    await FileIO.WriteBytesAsync(file, await _client.DownloadAttachmentAsync(attachment.Guid));
+                    _sharedFiles.Add(file);
+                    _shareTemporaryFiles.Add(file);
+                }
+                OpenCompose();
+            }
+            catch
+            {
+                ClearSharedContent();
+                throw;
+            }
+        }
+
+        private async Task SaveImageAsync(MessageItem message, MessageAttachmentItem attachment)
+        {
+            if (_client == null) return;
+            var guid = attachment == null ? message.AttachmentGuid : attachment.Guid;
+            var fileName = attachment == null ? GetMediaFileName(message) : GetAttachmentFileName(attachment, message.Guid);
+            var file = await KnownFolders.PicturesLibrary.CreateFileAsync(fileName, CreationCollisionOption.GenerateUniqueName);
+            await FileIO.WriteBytesAsync(file, await _client.DownloadAttachmentAsync(guid));
+            await new MessageDialog("Saved to Pictures.", "BlueBubbles").ShowAsync();
+        }
+
+        private static string GetAttachmentFileName(MessageAttachmentItem attachment, string messageGuid)
+        {
+            var fileName = attachment.Name;
+            if (string.IsNullOrWhiteSpace(fileName))
+            {
+                var extension = attachment.IsImage ? ".jpg" : attachment.IsVideo ? ".mp4" : ".bin";
+                if (string.Equals(attachment.MimeType, "image/png", StringComparison.OrdinalIgnoreCase)) extension = ".png";
+                else if (string.Equals(attachment.MimeType, "image/gif", StringComparison.OrdinalIgnoreCase)) extension = ".gif";
+                else if (string.Equals(attachment.MimeType, "image/heic", StringComparison.OrdinalIgnoreCase)) extension = ".heic";
+                else if ((attachment.MimeType ?? string.Empty).IndexOf("quicktime", StringComparison.OrdinalIgnoreCase) >= 0) extension = ".mov";
+                fileName = "BlueBubbles-" + (string.IsNullOrWhiteSpace(messageGuid) ? Guid.NewGuid().ToString("N") : messageGuid) + extension;
+            }
+            foreach (var invalid in Path.GetInvalidFileNameChars()) fileName = fileName.Replace(invalid, '_');
+            return fileName;
         }
 
         private static string GetMediaFileName(MessageItem message)
@@ -748,7 +846,7 @@ namespace WpBlueBubbles
             _recipientMatches.Clear();
             foreach (var chat in _allChats.Take(12)) _recipientMatches.Add(chat);
             ComposeOverlay.Visibility = Visibility.Visible;
-            if (_shareOperation != null && !string.IsNullOrWhiteSpace(_sharedText)) ComposeMessageBox.Text = _sharedText;
+            if (!string.IsNullOrWhiteSpace(_sharedText)) ComposeMessageBox.Text = _sharedText;
             SharedComposePreview.Text = BuildSharedPreview();
             SharedComposePreview.Visibility = string.IsNullOrWhiteSpace(SharedComposePreview.Text) ? Visibility.Collapsed : Visibility.Visible;
             RecipientBox.Focus(FocusState.Programmatic);
@@ -857,7 +955,7 @@ namespace WpBlueBubbles
 
         private async void ComposeMessageBox_KeyDown(object sender, KeyRoutedEventArgs e)
         {
-            if (!ShouldSendOnEnter(e)) return;
+            if (!IsDesktopEnter(e) || IsShiftDown()) return;
             e.Handled = true;
             await SendComposedMessageAsync();
         }
@@ -1203,8 +1301,33 @@ namespace WpBlueBubbles
         private void ThemeToggle_Toggled(object sender, RoutedEventArgs e)
         {
             if (!_settingsLoaded) return;
-            SettingsStore.SaveAppearance(OledBlackToggle.IsOn, AccentColorToggle.IsOn, LargerUiToggle.IsOn);
-            ApplyTheme(OledBlackToggle.IsOn, AccentColorToggle.IsOn, LargerUiToggle.IsOn);
+            SettingsStore.SaveAppearance(_themeMode, AccentColorToggle.IsOn, LargerUiToggle.IsOn);
+            ApplyTheme(_themeMode, AccentColorToggle.IsOn, LargerUiToggle.IsOn);
+        }
+
+        private void ThemeModeBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            var item = ThemeModeBox.SelectedItem as ComboBoxItem;
+            AppThemeMode mode;
+            if (item?.Tag == null || !Enum.TryParse(item.Tag.ToString(), true, out mode)) return;
+            _themeMode = mode;
+            if (!_settingsLoaded) return;
+            SettingsStore.SaveAppearance(_themeMode, AccentColorToggle.IsOn, LargerUiToggle.IsOn);
+            ApplyTheme(_themeMode, AccentColorToggle.IsOn, LargerUiToggle.IsOn);
+        }
+
+        private void SelectThemeMode(AppThemeMode mode)
+        {
+            for (var i = 0; i < ThemeModeBox.Items.Count; i++)
+            {
+                var item = ThemeModeBox.Items[i] as ComboBoxItem;
+                if (string.Equals(item?.Tag?.ToString(), mode.ToString(), StringComparison.OrdinalIgnoreCase))
+                {
+                    ThemeModeBox.SelectedIndex = i;
+                    return;
+                }
+            }
+            ThemeModeBox.SelectedIndex = 0;
         }
 
         private void DeveloperModeToggle_Toggled(object sender, RoutedEventArgs e)
@@ -1226,17 +1349,56 @@ namespace WpBlueBubbles
                 : "Notifications and Live Tiles coming soon.";
         }
 
-        private void ApplyTheme(bool oledBlack, bool useAccentColor, bool largerUi)
+        private void ApplyTheme(AppThemeMode selectedMode, bool useAccentColor, bool largerUi)
         {
+            var mode = ResolveThemeMode(selectedMode);
             var resources = Application.Current.Resources;
             var blue = useAccentColor ? GetWindowsAccentColor() : Windows.UI.Color.FromArgb(255, 14, 99, 156);
             SetBrushColor(resources, "MessengerBlueBrush", blue);
-            SetBrushColor(resources, "IncomingMessageBrush", Windows.UI.Color.FromArgb(255, 38, 52, 61));
-            SetBrushColor(resources, "AppBackgroundBrush", oledBlack ? Windows.UI.Colors.Black : Windows.UI.Color.FromArgb(255, 7, 17, 23));
-            SetBrushColor(resources, "PanelBackgroundBrush", oledBlack ? Windows.UI.Colors.Black : Windows.UI.Color.FromArgb(255, 11, 23, 30));
-            SetBrushColor(resources, "HeaderBackgroundBrush", oledBlack ? Windows.UI.Colors.Black : Windows.UI.Color.FromArgb(255, 9, 20, 27));
+            if (mode == AppThemeMode.Light)
+            {
+                RequestedTheme = ElementTheme.Light;
+                SetBrushColor(resources, "IncomingMessageBrush", Windows.UI.Color.FromArgb(255, 229, 229, 234));
+                SetBrushColor(resources, "IncomingMessageTextBrush", Windows.UI.Color.FromArgb(255, 17, 17, 17));
+                SetBrushColor(resources, "AppBackgroundBrush", Windows.UI.Colors.White);
+                SetBrushColor(resources, "PanelBackgroundBrush", Windows.UI.Color.FromArgb(255, 245, 245, 245));
+                SetBrushColor(resources, "HeaderBackgroundBrush", Windows.UI.Colors.White);
+                SetBrushColor(resources, "AppBorderBrush", Windows.UI.Color.FromArgb(255, 210, 210, 210));
+                SetBrushColor(resources, "MutedTextBrush", Windows.UI.Color.FromArgb(255, 94, 94, 94));
+            }
+            else
+            {
+                RequestedTheme = ElementTheme.Dark;
+                SetBrushColor(resources, "IncomingMessageBrush", Windows.UI.Color.FromArgb(255, 38, 52, 61));
+                SetBrushColor(resources, "IncomingMessageTextBrush", Windows.UI.Colors.White);
+                var oled = mode == AppThemeMode.Dark;
+                SetBrushColor(resources, "AppBackgroundBrush", oled ? Windows.UI.Colors.Black : Windows.UI.Color.FromArgb(255, 7, 17, 23));
+                SetBrushColor(resources, "PanelBackgroundBrush", oled ? Windows.UI.Colors.Black : Windows.UI.Color.FromArgb(255, 11, 23, 30));
+                SetBrushColor(resources, "HeaderBackgroundBrush", oled ? Windows.UI.Colors.Black : Windows.UI.Color.FromArgb(255, 9, 20, 27));
+                SetBrushColor(resources, "AppBorderBrush", Windows.UI.Color.FromArgb(255, 51, 67, 76));
+                SetBrushColor(resources, "MutedTextBrush", Windows.UI.Color.FromArgb(255, 174, 184, 190));
+            }
+            SetBrushColor(resources, "OutgoingMessageTextBrush", Windows.UI.Colors.White);
             foreach (var message in _messages) message.RefreshBubbleBrush();
             ApplyUiDensity(largerUi);
+        }
+
+        private AppThemeMode ResolveThemeMode(AppThemeMode mode)
+        {
+            if (mode != AppThemeMode.System) return mode;
+            try
+            {
+                var color = _uiSettings.GetColorValue(UIColorType.Background);
+                var luminance = (0.2126 * color.R) + (0.7152 * color.G) + (0.0722 * color.B);
+                return luminance < 128 ? AppThemeMode.Dark : AppThemeMode.Light;
+            }
+            catch { return AppThemeMode.Dark; }
+        }
+
+        private async void UiSettings_ColorValuesChanged(UISettings sender, object args)
+        {
+            if (_themeMode != AppThemeMode.System) return;
+            await Dispatcher.RunAsync(CoreDispatcherPriority.Normal, () => ApplyTheme(_themeMode, AccentColorToggle.IsOn, LargerUiToggle.IsOn));
         }
 
         private static Windows.UI.Color GetWindowsAccentColor()
@@ -1306,6 +1468,48 @@ namespace WpBlueBubbles
         {
             var version = Package.Current.Id.Version;
             PackageVersionText.Text = "v" + version.Major + "." + version.Minor + "." + version.Build + "." + version.Revision;
+        }
+
+        private async void CheckForUpdate_Click(object sender, RoutedEventArgs e)
+        {
+            CheckForUpdateButton.IsEnabled = false;
+            UpdateProgressRing.Visibility = Visibility.Visible;
+            UpdateProgressRing.IsActive = true;
+            UpdateStatusText.Text = "Checking GitHub...";
+            try
+            {
+                var service = new GitHubUpdateService();
+                var release = await service.GetLatestReleaseAsync();
+                var currentId = Package.Current.Id.Version;
+                var current = new Version(currentId.Major, currentId.Minor, currentId.Build, currentId.Revision);
+                if (release.Version <= current)
+                {
+                    UpdateStatusText.Text = "BlueBubbles Beta is up to date.";
+                    await new MessageDialog("You already have the latest release.", "No update available").ShowAsync();
+                    return;
+                }
+
+                UpdateStatusText.Text = "Downloading v" + release.Version.ToString(4) + "...";
+                var progress = new Progress<double>(value => UpdateStatusText.Text = "Downloading v" + release.Version.ToString(4) + " - " + (int)(value * 100) + "%");
+                var file = await service.DownloadAsync(release, progress);
+                UpdateStatusText.Text = "Opening the Windows installer...";
+                if (!await Launcher.LaunchFileAsync(file))
+                {
+                    UpdateStatusText.Text = "Windows could not open the installer. Opening the release page instead.";
+                    Uri uri;
+                    if (Uri.TryCreate(release.ReleaseUrl, UriKind.Absolute, out uri)) await Launcher.LaunchUriAsync(uri);
+                }
+            }
+            catch (Exception ex)
+            {
+                UpdateStatusText.Text = "Update check failed. " + FriendlyError(ex, "GitHub could not be reached.");
+            }
+            finally
+            {
+                UpdateProgressRing.IsActive = false;
+                UpdateProgressRing.Visibility = Visibility.Collapsed;
+                CheckForUpdateButton.IsEnabled = true;
+            }
         }
 
         private void UpdateServerDetails(string address)
@@ -1385,14 +1589,15 @@ namespace WpBlueBubbles
             _contactImages = new Dictionary<string, ImageSource>();
             _contactTileImages = new Dictionary<string, string>();
             ClearSharedContent();
-            OledBlackToggle.IsOn = true;
+            _themeMode = AppThemeMode.System;
+            SelectThemeMode(_themeMode);
             AccentColorToggle.IsOn = false;
             SendReadReceiptsToggle.IsOn = false;
             DeveloperModeToggle.IsOn = false;
             LargerUiToggle.IsOn = false;
             _pollTimer.Interval = TimeSpan.FromSeconds(5);
             SelectPollInterval(5);
-            ApplyTheme(true, false, false);
+            ApplyTheme(AppThemeMode.System, false, false);
             _serverCapabilitiesKnown = false;
             _serverCapabilities = new ServerCapabilities();
             UpdateServerDetails(string.Empty);
@@ -1760,9 +1965,10 @@ namespace WpBlueBubbles
 
         private string BuildSharedPreview()
         {
-            if (_sharedFiles.Count > 0 && !string.IsNullOrWhiteSpace(_sharedText)) return "Sharing " + DescribeSharedFiles() + " and text.";
-            if (_sharedFiles.Count > 0) return "Sharing " + DescribeSharedFiles() + ".";
-            return string.IsNullOrWhiteSpace(_sharedText) ? string.Empty : "Sharing text.";
+            var verb = _isForwarding ? "Forwarding " : "Sharing ";
+            if (_sharedFiles.Count > 0 && !string.IsNullOrWhiteSpace(_sharedText)) return verb + DescribeSharedFiles() + " and text.";
+            if (_sharedFiles.Count > 0) return verb + DescribeSharedFiles() + ".";
+            return string.IsNullOrWhiteSpace(_sharedText) ? string.Empty : verb + "text.";
         }
 
         private void StageSharedContentInComposer()
@@ -1799,6 +2005,7 @@ namespace WpBlueBubbles
             _shareOperation = null;
             _sharedFiles.Clear();
             _sharedText = null;
+            _isForwarding = false;
             SharedAttachmentBanner.Visibility = Visibility.Collapsed;
             SharedAttachmentBanner.Text = string.Empty;
             AttachmentBannerHost.Visibility = Visibility.Collapsed;

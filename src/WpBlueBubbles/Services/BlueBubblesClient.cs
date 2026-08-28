@@ -320,6 +320,14 @@ namespace WpBlueBubbles.Services
             await ReadResponseAsync(response);
         }
 
+        public async Task DeleteMessageAsync(string chatGuid, string messageGuid)
+        {
+            if (string.IsNullOrWhiteSpace(chatGuid)) throw new ArgumentException("Chat is required.");
+            if (string.IsNullOrWhiteSpace(messageGuid)) throw new ArgumentException("Message is required.");
+            var response = await _http.DeleteAsync(BuildUrl("chat/" + Uri.EscapeDataString(chatGuid) + "/" + Uri.EscapeDataString(messageGuid)));
+            await ReadResponseAsync(response);
+        }
+
         public async Task SendAttachmentAsync(string chatGuid, StorageFile file)
         {
             var tempGuid = "temp-" + Guid.NewGuid().ToString();

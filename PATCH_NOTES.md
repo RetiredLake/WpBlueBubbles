@@ -3,6 +3,17 @@
 All releases are beta software. Versions before v0.2.0.0 are retained as legacy
 builds and may contain bugs fixed by later releases.
 
+## v0.3.0.0 Beta
+
+- Added a single dark message action menu with Delete, Forward, Copy, and Save shown only when each action applies.
+- Added confirmed server-side message deletion for Private API servers; deletion does not unsend the message.
+- Added forwarding for text and multiple attachments through the existing Compose recipient flow.
+- Replaced the OLED toggle with System, Light, Blue, and Dark themes; System is the default and follows Windows.
+- Preserved Messenger blue or the optional Windows accent for outbound messages while incoming messages remain gray.
+- Added a manual GitHub update checker that downloads the latest regular-release app bundle and opens the Windows installer.
+- Fixed desktop keyboard handling so Enter is always consumed as Send, including failed sends, while Shift+Enter inserts a newline.
+- Added physical-keyboard focus routing so typing in a conversation enters the composer unless another text field is active.
+
 ## v0.2.2.1 Beta
 
 - Added an optional, persisted Send read receipts toggle. It is off by default.
