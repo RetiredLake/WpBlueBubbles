@@ -7,7 +7,6 @@ using System.Net.Http;
 using System.Reflection;
 using System.Text;
 using System.Text.RegularExpressions;
-using System.Threading;
 using System.Threading.Tasks;
 using Windows.System;
 using Windows.ApplicationModel.DataTransfer;
@@ -81,8 +80,7 @@ namespace WpBlueBubbles
         private string _typingChatGuid;
         private int _availabilityGeneration;
         private string _composeService;
-        private readonly Dictionary<string, Task<string>> _imageLoadTasks = new Dictionary<string, Task<string>>(StringComparer.OrdinalIgnoreCase);
-        private readonly SemaphoreSlim _imageLoadGate = new SemaphoreSlim(3);
+        private readonly HashSet<UIElement> _contextMenuHooks = new HashSet<UIElement>();
         private static readonly bool UseLegacyInAppSyncStatus = false;
         private static readonly bool UsePhoneSyncStatus = false;
 
@@ -107,6 +105,8 @@ namespace WpBlueBubbles
             SystemNavigationManager.GetForCurrentView().BackRequested += MainPage_BackRequested;
             _inputPane.Showing += InputPane_Showing;
             _inputPane.Hiding += InputPane_Hiding;
+            MessageBox.AddHandler(UIElement.KeyDownEvent, new KeyEventHandler(MessageBox_KeyDown), true);
+            ComposeMessageBox.AddHandler(UIElement.KeyDownEvent, new KeyEventHandler(ComposeMessageBox_KeyDown), true);
         }
 
         private async void MainPage_Loaded(object sender, RoutedEventArgs e)
@@ -225,7 +225,6 @@ namespace WpBlueBubbles
             {
                 if (_client != null) _client.Dispose();
                 _client = new BlueBubblesClient(address, password);
-                _imageLoadTasks.Clear();
                 _chatStateSignature = null;
                 await _client.TestConnectionAsync();
                 try { _serverCapabilities = await _client.GetServerCapabilitiesAsync(); _serverCapabilitiesKnown = true; }
@@ -335,10 +334,8 @@ namespace WpBlueBubbles
                 var message = received[i];
                 message.UsesSmsColor = selectedChat.UsesSmsColor;
                 message.ResolveSender(selectedChat.IsGroupChat, _contactNames);
-                // UWP Image cannot reliably consume the authenticated HTTP URL directly.
-                // Images are downloaded lazily when their virtualized item becomes visible.
-                if (message.IsImageAttachment) message.SetAttachmentUri(string.Empty);
-                else if (message.IsVideoAttachment) message.SetAttachmentUri(client.GetAttachmentDownloadUri(message.AttachmentGuid));
+                if (message.IsImageAttachment) message.SetAttachmentUri(client.GetAttachmentDownloadUri(message.AttachmentGuid));
+                else if (message.IsVideoAttachment) await PrepareVideoAsync(client, message);
                 _messages.Add(message);
                 SetSyncing(true, "Syncing messages: " + (i + 1) + " of " + total);
             }
@@ -623,7 +620,19 @@ namespace WpBlueBubbles
             if (e.HoldingState != HoldingState.Started) return;
             var element = sender as FrameworkElement;
             var message = element?.DataContext as MessageItem;
-            if (message == null || string.IsNullOrWhiteSpace(message.Text)) return;
+            await ShowMessageContextMenuAsync(element, message);
+        }
+
+        private async void Message_RightTapped(object sender, RightTappedRoutedEventArgs e)
+        {
+            e.Handled = true;
+            var element = sender as FrameworkElement;
+            await ShowMessageContextMenuAsync(element, element?.DataContext as MessageItem);
+        }
+
+        private static async Task ShowMessageContextMenuAsync(FrameworkElement element, MessageItem message)
+        {
+            if (element == null || message == null || string.IsNullOrWhiteSpace(message.Text)) return;
             var menu = new PopupMenu();
             menu.Commands.Add(new UICommand("Copy"));
             var point = element.TransformToVisual(null).TransformPoint(new Point());
@@ -632,6 +641,7 @@ namespace WpBlueBubbles
             var data = new DataPackage();
             data.SetText(message.Text);
             Clipboard.SetContent(data);
+            Clipboard.Flush();
         }
 
         private async void Media_Holding(object sender, HoldingRoutedEventArgs e)
@@ -639,8 +649,19 @@ namespace WpBlueBubbles
             if (e.HoldingState != HoldingState.Started) return;
             e.Handled = true;
             var element = sender as FrameworkElement;
-            var message = element?.DataContext as MessageItem;
-            if (_client == null || message == null || string.IsNullOrWhiteSpace(message.AttachmentGuid)) return;
+            await ShowMediaContextMenuAsync(element, element?.DataContext as MessageItem);
+        }
+
+        private async void Media_RightTapped(object sender, RightTappedRoutedEventArgs e)
+        {
+            e.Handled = true;
+            var element = sender as FrameworkElement;
+            await ShowMediaContextMenuAsync(element, element?.DataContext as MessageItem);
+        }
+
+        private async Task ShowMediaContextMenuAsync(FrameworkElement element, MessageItem message)
+        {
+            if (_client == null || element == null || message == null || string.IsNullOrWhiteSpace(message.AttachmentGuid)) return;
 
             var saveCommand = new UICommand("Save");
             var menu = new PopupMenu();
@@ -1229,7 +1250,6 @@ namespace WpBlueBubbles
             _pollTimer.Stop();
             _client?.Dispose();
             _client = null;
-            _imageLoadTasks.Clear();
             _selectedChat = null;
             _allChats.Clear();
             _chats.Clear();
@@ -1649,63 +1669,23 @@ namespace WpBlueBubbles
             SharedComposePreview.Visibility = Visibility.Collapsed;
         }
 
-        private async void AttachmentImage_Loaded(object sender, RoutedEventArgs e)
+        private async Task PrepareVideoAsync(BlueBubblesClient client, MessageItem message)
         {
-            var image = sender as Image;
-            var message = image?.DataContext as MessageItem;
-            if (_client == null || message == null || !message.IsImageAttachment || string.IsNullOrWhiteSpace(message.AttachmentGuid)) return;
-            if (!string.IsNullOrWhiteSpace(message.AttachmentUri) && message.AttachmentUri.StartsWith("ms-appdata:", StringComparison.OrdinalIgnoreCase)) return;
-
-            var client = _client;
-            var key = message.AttachmentGuid;
-            Task<string> loadTask;
-            if (!_imageLoadTasks.TryGetValue(key, out loadTask))
-            {
-                loadTask = CacheImageAsync(client, message);
-                _imageLoadTasks[key] = loadTask;
-            }
-
             try
             {
-                var uri = await loadTask;
-                if (client == _client && _messages.Contains(message) && message.IsImageAttachment) message.SetAttachmentUri(uri);
-            }
-            catch (Exception ex)
-            {
-                _imageLoadTasks.Remove(key);
-                if (_messages.Contains(message)) message.MarkAttachmentFailed();
-                if (DeveloperModeToggle.IsOn) ShowStatus(FriendlyError(ex, "load the image"), true);
-            }
-        }
-
-        private async Task<string> CacheImageAsync(BlueBubblesClient client, MessageItem message)
-        {
-            await _imageLoadGate.WaitAsync();
-            try
-            {
-                var folder = await ApplicationData.Current.TemporaryFolder.CreateFolderAsync("ImageMedia", CreationCollisionOption.OpenIfExists);
+                var folder = await ApplicationData.Current.TemporaryFolder.CreateFolderAsync("MessageMedia", CreationCollisionOption.OpenIfExists);
                 var extension = Path.GetExtension(message.AttachmentLabel);
-                if (string.IsNullOrWhiteSpace(extension) || extension.Length > 8) extension = GetImageExtension(message.AttachmentMimeType);
-                var safeGuid = Regex.Replace(message.AttachmentGuid, "[^A-Za-z0-9_-]", "_");
+                if (string.IsNullOrWhiteSpace(extension)) extension = message.AttachmentMimeType.IndexOf("quicktime", StringComparison.OrdinalIgnoreCase) >= 0 ? ".mov" : ".mp4";
+                var safeGuid = Regex.Replace(message.AttachmentGuid ?? message.Guid ?? Guid.NewGuid().ToString("N"), "[^A-Za-z0-9_-]", "_");
                 var file = await folder.CreateFileAsync(safeGuid + extension, CreationCollisionOption.OpenIfExists);
                 var properties = await file.GetBasicPropertiesAsync();
-                if (properties.Size == 0)
-                {
-                    var bytes = await client.DownloadAttachmentAsync(message.AttachmentGuid);
-                    await FileIO.WriteBytesAsync(file, bytes);
-                }
-                return "ms-appdata:///temp/ImageMedia/" + file.Name;
+                if (properties.Size == 0) await FileIO.WriteBytesAsync(file, await client.DownloadAttachmentAsync(message.AttachmentGuid));
+                message.SetAttachmentUri("ms-appdata:///temp/MessageMedia/" + file.Name);
             }
-            finally { _imageLoadGate.Release(); }
-        }
-
-        private static string GetImageExtension(string mimeType)
-        {
-            var mime = mimeType ?? string.Empty;
-            if (mime.IndexOf("png", StringComparison.OrdinalIgnoreCase) >= 0) return ".png";
-            if (mime.IndexOf("gif", StringComparison.OrdinalIgnoreCase) >= 0) return ".gif";
-            if (mime.IndexOf("heic", StringComparison.OrdinalIgnoreCase) >= 0) return ".heic";
-            return ".jpg";
+            catch
+            {
+                message.MarkAttachmentFailed();
+            }
         }
 
         private string DescribeSharedFiles()
@@ -1714,18 +1694,12 @@ namespace WpBlueBubbles
             return _sharedFiles.Count + " files";
         }
 
-        private void AttachmentImage_Failed(object sender, ExceptionRoutedEventArgs e)
-        {
-            var image = sender as Image;
-            var message = image?.DataContext as MessageItem;
-            if (message != null) message.MarkAttachmentFailed();
-        }
-
         private void AttachmentMedia_Failed(object sender, ExceptionRoutedEventArgs e)
         {
             var media = sender as FrameworkElement;
             var message = media?.DataContext as MessageItem;
-            if (message != null) message.MarkAttachmentFailed();
+            if (message == null || !message.IsVideoAttachment) return;
+            message.MarkAttachmentFailed();
             if (DeveloperModeToggle.IsOn) ShowStatus("Developer details: MediaElement could not decode or open this video.", true);
         }
 
@@ -1738,6 +1712,9 @@ namespace WpBlueBubbles
 
         private async void Media_Opened(object sender, RoutedEventArgs e)
         {
+            var element = sender as UIElement;
+            if (element != null && _contextMenuHooks.Add(element))
+                element.AddHandler(UIElement.RightTappedEvent, new RightTappedEventHandler(Media_RightTapped), true);
             if (DateTimeOffset.Now <= _pinMessagesToBottomUntil) await ScrollToNewestMessageAsync();
         }
 
@@ -1807,6 +1784,8 @@ namespace WpBlueBubbles
         private void MessageText_Loaded(object sender, RoutedEventArgs e)
         {
             var block = sender as RichTextBlock;
+            if (block != null && _contextMenuHooks.Add(block))
+                block.AddHandler(UIElement.RightTappedEvent, new RightTappedEventHandler(Message_RightTapped), true);
             RenderMessageText(block, block?.DataContext as MessageItem);
         }
 

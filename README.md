@@ -83,7 +83,7 @@ clients takes priority until notifications are complete.
 
 ## Status
 
-The current release is **v0.2.1.8 Beta**. Builds from v0.1.6.0 through v0.1.9.9
+The current release is **v0.2.1.9 Beta**. Builds from v0.1.6.0 through v0.1.9.9
 are published as legacy betas for testing and historical preservation.
 
 The v0.2 series stores growing per-chat state in files rather than the
@@ -96,9 +96,9 @@ v0.2.1.6 restores gray incoming bubbles, improves keyboard anchoring and compact
 secondary-page headers, and performs a deeper reset. v0.2.1.7 restores the
 pre-v0.2.1.5 on-demand media path, adds safe read retries, and allows setup to
 complete even when the first chat sync needs to retry.
-v0.2.1.8 restores nonblocking image rendering through lazy authenticated
-downloads, adds configurable polling, corrects desktop Enter behavior, and
-keeps desktop conversation actions visible.
+v0.2.1.9 restores reliable image and video rendering, prevents hidden media
+controls from invalidating pictures, adds configurable polling, corrects
+desktop Enter behavior, and keeps desktop conversation actions visible.
 
 Developed by [retiredlake.com](https://retiredlake.com/).
 

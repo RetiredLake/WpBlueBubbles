@@ -3,6 +3,19 @@
 All releases are beta software. Versions before v0.2.0.0 are retained as legacy
 builds and may contain bugs fixed by later releases.
 
+## v0.2.1.9 Beta
+
+- Restored reliable image rendering by returning to the proven direct attachment path.
+- Prevented recycled image controls and hidden video controls from invalidating successfully loaded pictures.
+- Preserved on-demand video playback, which was confirmed working in the release candidate.
+- Made physical-keyboard Enter send on desktop and Shift+Enter insert a newline; phone Return remains newline-only.
+- Made desktop right-click consistently offer Copy for messages and Save for media.
+- Added a persistent 3/5/10/15/30-second message fetch setting, defaulting to five seconds.
+- Kept search, compose, and conversation actions visible together in wide desktop layouts.
+- Removed focused white backgrounds and borders from both message composers.
+- Corrected Windows accent mode so only outbound bubbles use the selected accent; incoming bubbles remain gray.
+- Added clearer notification placeholder text and a manual Private API status refresh.
+
 ## v0.2.1.8 Beta
 
 - Restored image rendering with lazy authenticated downloads for visible messages, without blocking chat history on media.
