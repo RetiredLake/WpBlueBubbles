@@ -84,6 +84,8 @@ namespace WpBlueBubbles
         private int _availabilityGeneration;
         private string _composeService;
         private bool _contextMenuOpen;
+        private int _foregroundRequestDepth;
+        private bool _handlingDesktopEnter;
         private AppThemeMode _themeMode = AppThemeMode.System;
         private readonly UISettings _uiSettings = new UISettings();
         private static readonly bool UseLegacyInAppSyncStatus = false;
@@ -111,9 +113,10 @@ namespace WpBlueBubbles
             _inputPane.Showing += InputPane_Showing;
             _inputPane.Hiding += InputPane_Hiding;
             Window.Current.CoreWindow.CharacterReceived += CoreWindow_CharacterReceived;
+            Window.Current.CoreWindow.KeyDown += CoreWindow_KeyDown;
             _uiSettings.ColorValuesChanged += UiSettings_ColorValuesChanged;
-            MessageBox.AddHandler(UIElement.KeyDownEvent, new KeyEventHandler(MessageBox_KeyDown), true);
-            ComposeMessageBox.AddHandler(UIElement.KeyDownEvent, new KeyEventHandler(ComposeMessageBox_KeyDown), true);
+            ChatsList.ContainerContentChanging += AvatarList_ContainerContentChanging;
+            ContactsList.ContainerContentChanging += AvatarList_ContainerContentChanging;
         }
 
         private async void MainPage_Loaded(object sender, RoutedEventArgs e)
@@ -180,6 +183,7 @@ namespace WpBlueBubbles
             _inputPane.Showing -= InputPane_Showing;
             _inputPane.Hiding -= InputPane_Hiding;
             Window.Current.CoreWindow.CharacterReceived -= CoreWindow_CharacterReceived;
+            Window.Current.CoreWindow.KeyDown -= CoreWindow_KeyDown;
             _uiSettings.ColorValuesChanged -= UiSettings_ColorValuesChanged;
         }
 
@@ -348,7 +352,7 @@ namespace WpBlueBubbles
                 message.UsesSmsColor = selectedChat.UsesSmsColor;
                 message.ResolveSender(selectedChat.IsGroupChat, _contactNames);
                 if (message.IsImageAttachment) message.SetAttachmentUri(client.GetAttachmentDownloadUri(message.AttachmentGuid));
-                else if (message.IsVideoAttachment) await PrepareVideoAsync(client, message);
+                // Video downloads are deferred until playback so media-heavy chats render immediately.
                 _messages.Add(message);
                 SetSyncing(true, "Syncing messages: " + (i + 1) + " of " + total);
             }
@@ -368,7 +372,7 @@ namespace WpBlueBubbles
 
         private async void PollTimer_Tick(object sender, object e)
         {
-            if (_isRefreshing) return;
+            if (_isRefreshing || _foregroundRequestDepth > 0) return;
             _isRefreshing = true;
             SetSyncing(true, "Refreshing chat list from BlueBubbles...");
             try
@@ -401,9 +405,10 @@ namespace WpBlueBubbles
                 ReturnToConversation();
             }
             ShowStatus("Loading messages...", false);
+            BeginForegroundRequest();
             try { SetSyncing(true, "Syncing messages..."); await RefreshMessagesAsync(true); await MarkSelectedChatReadAsync(); ShowStatus(string.Empty, false); }
             catch (Exception ex) { ShowStatus(FriendlyError(ex, "open the conversation"), true); }
-            finally { SetSyncing(false, null); }
+            finally { EndForegroundRequest(); SetSyncing(false, null); }
         }
 
         private async Task SendCurrentMessageAsync()
@@ -413,18 +418,28 @@ namespace WpBlueBubbles
             SendButton.IsEnabled = false;
             MessageBox.IsReadOnly = true;
             MessageBox.Opacity = 0.55;
+            BeginForegroundRequest();
             try
             {
                 StopTypingWithoutWaiting();
                 foreach (var file in _sharedFiles.ToList()) await _client.SendAttachmentAsync(_selectedChat.Guid, file);
-                if (text.Length > 0) await _client.SendTextAsync(_selectedChat.Guid, text);
+                MessageItem sentMessage = null;
+                if (text.Length > 0) sentMessage = await _client.SendTextAsync(_selectedChat.Guid, text);
                 MessageBox.Text = string.Empty;
                 CompleteSharedContent();
-                await RefreshMessagesAsync(true);
+                if (sentMessage != null)
+                {
+                    sentMessage.UsesSmsColor = _selectedChat.UsesSmsColor;
+                    sentMessage.ResolveSender(_selectedChat.IsGroupChat, _contactNames);
+                    _messages.Add(sentMessage);
+                    await ScrollToNewestMessageAsync();
+                }
+                _ = RefreshAfterSendAsync();
             }
             catch (Exception ex) { ShowStatus(FriendlyError(ex, "send the message"), true); }
             finally
             {
+                EndForegroundRequest();
                 SendButton.IsEnabled = true;
                 MessageBox.IsReadOnly = false;
                 MessageBox.Opacity = 1;
@@ -432,9 +447,36 @@ namespace WpBlueBubbles
             }
         }
 
+        private async Task RefreshAfterSendAsync()
+        {
+            var beganRefresh = false;
+            try
+            {
+                await Task.Delay(250);
+                BeginForegroundRequest();
+                beganRefresh = true;
+                await RefreshMessagesAsync(true);
+            }
+            catch { }
+            finally { if (beganRefresh) EndForegroundRequest(); }
+        }
+
+        private void BeginForegroundRequest()
+        {
+            _foregroundRequestDepth++;
+            _pollTimer.Stop();
+        }
+
+        private void EndForegroundRequest()
+        {
+            if (_foregroundRequestDepth > 0) _foregroundRequestDepth--;
+            if (_foregroundRequestDepth == 0 && _client != null) _pollTimer.Start();
+        }
+
         private async void Send_Click(object sender, RoutedEventArgs e) { await SendCurrentMessageAsync(); }
         private async void MessageBox_KeyDown(object sender, KeyRoutedEventArgs e)
         {
+            if (_handlingDesktopEnter) { e.Handled = true; return; }
             if (!IsDesktopEnter(e)) return;
             if (IsShiftDown()) return;
             e.Handled = true;
@@ -449,6 +491,39 @@ namespace WpBlueBubbles
         private static bool IsShiftDown()
         {
             return Window.Current.CoreWindow.GetKeyState(VirtualKey.Shift).HasFlag(CoreVirtualKeyStates.Down);
+        }
+
+        private async void CoreWindow_KeyDown(CoreWindow sender, Windows.UI.Core.KeyEventArgs args)
+        {
+            if (args.VirtualKey != VirtualKey.Enter || string.Equals(AnalyticsInfo.DeviceForm, "Phone", StringComparison.OrdinalIgnoreCase) || IsShiftDown()) return;
+            var focused = FocusManager.GetFocusedElement();
+            if (focused != MessageBox && focused != ComposeMessageBox) return;
+            args.Handled = true;
+            _handlingDesktopEnter = true;
+            try
+            {
+                if (focused == MessageBox) await SendCurrentMessageAsync();
+                else await SendComposedMessageAsync();
+            }
+            finally { _handlingDesktopEnter = false; }
+        }
+
+        private async void AvatarList_ContainerContentChanging(ListViewBase sender, ContainerContentChangingEventArgs args)
+        {
+            if (args.InRecycleQueue) return;
+            await Dispatcher.RunAsync(CoreDispatcherPriority.Low, () => SetAvatarInitialsWhite(args.ItemContainer));
+        }
+
+        private static void SetAvatarInitialsWhite(DependencyObject root)
+        {
+            if (root == null) return;
+            var chat = (root as FrameworkElement)?.DataContext as ChatItem;
+            var contact = (root as FrameworkElement)?.DataContext as ContactChoice;
+            var initials = chat?.Initials ?? contact?.Initials;
+            var text = root as TextBlock;
+            if (text != null && !string.IsNullOrWhiteSpace(initials) && string.Equals(text.Text, initials, StringComparison.Ordinal))
+                text.Foreground = new SolidColorBrush(Windows.UI.Colors.White);
+            for (var index = 0; index < VisualTreeHelper.GetChildrenCount(root); index++) SetAvatarInitialsWhite(VisualTreeHelper.GetChild(root, index));
         }
 
         private async void CoreWindow_CharacterReceived(CoreWindow sender, CharacterReceivedEventArgs args)
@@ -955,6 +1030,7 @@ namespace WpBlueBubbles
 
         private async void ComposeMessageBox_KeyDown(object sender, KeyRoutedEventArgs e)
         {
+            if (_handlingDesktopEnter) { e.Handled = true; return; }
             if (!IsDesktopEnter(e) || IsShiftDown()) return;
             e.Handled = true;
             await SendComposedMessageAsync();
@@ -1379,8 +1455,20 @@ namespace WpBlueBubbles
                 SetBrushColor(resources, "MutedTextBrush", Windows.UI.Color.FromArgb(255, 174, 184, 190));
             }
             SetBrushColor(resources, "OutgoingMessageTextBrush", Windows.UI.Colors.White);
+            SetPhoneStatusBarForeground(mode == AppThemeMode.Light ? Windows.UI.Colors.Black : Windows.UI.Colors.White);
             foreach (var message in _messages) message.RefreshBubbleBrush();
             ApplyUiDensity(largerUi);
+        }
+
+        private static void SetPhoneStatusBarForeground(Windows.UI.Color color)
+        {
+            try
+            {
+                var statusBarType = Type.GetType("Windows.UI.ViewManagement.StatusBar, Windows, ContentType=WindowsRuntime");
+                var phoneStatus = statusBarType?.GetMethod("GetForCurrentView").Invoke(null, null);
+                statusBarType?.GetProperty("ForegroundColor")?.SetValue(phoneStatus, color);
+            }
+            catch { }
         }
 
         private AppThemeMode ResolveThemeMode(AppThemeMode mode)
@@ -2039,6 +2127,17 @@ namespace WpBlueBubbles
             {
                 message.MarkAttachmentFailed();
             }
+        }
+
+        private async void Message_Tapped(object sender, TappedRoutedEventArgs e)
+        {
+            var element = sender as FrameworkElement;
+            var message = element?.DataContext as MessageItem;
+            if (_client == null || message == null || !message.IsVideoAttachment || !string.IsNullOrWhiteSpace(message.AttachmentUri)) return;
+            e.Handled = true;
+            BeginForegroundRequest();
+            try { await PrepareVideoAsync(_client, message); }
+            finally { EndForegroundRequest(); }
         }
 
         private string DescribeSharedFiles()

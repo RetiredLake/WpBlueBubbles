@@ -28,6 +28,8 @@ namespace WpBlueBubbles.Models
         public bool ShowSenderName { get; set; }
         public bool HasText { get { return !string.IsNullOrWhiteSpace(Text); } }
         public bool HasNonPreviewAttachment { get { return HasAttachments && !IsImageAttachment && !IsVideoAttachment; } }
+        public bool IsVideoReady { get { return IsVideoAttachment && !string.IsNullOrWhiteSpace(AttachmentUri); } }
+        public bool ShowVideoPlaceholder { get { return IsVideoAttachment && string.IsNullOrWhiteSpace(AttachmentUri); } }
         public event PropertyChangedEventHandler PropertyChanged;
         public HorizontalAlignment BubbleAlignment { get { return IsFromMe ? HorizontalAlignment.Right : HorizontalAlignment.Left; } }
         public Brush BubbleBrush { get { return Application.Current.Resources[IsFromMe ? "MessengerBlueBrush" : "IncomingMessageBrush"] as Brush; } }
@@ -110,6 +112,8 @@ namespace WpBlueBubbles.Models
         {
             AttachmentUri = uri;
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(AttachmentUri)));
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsVideoReady)));
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(ShowVideoPlaceholder)));
         }
 
         public void RefreshBubbleBrush()
@@ -128,6 +132,8 @@ namespace WpBlueBubbles.Models
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(AttachmentUri)));
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsImageAttachment)));
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsVideoAttachment)));
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsVideoReady)));
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(ShowVideoPlaceholder)));
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(HasNonPreviewAttachment)));
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(AttachmentLabel)));
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(HasText)));

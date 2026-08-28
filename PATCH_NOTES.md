@@ -3,6 +3,16 @@
 All releases are beta software. Versions before v0.2.0.0 are retained as legacy
 builds and may contain bugs fixed by later releases.
 
+## v0.3.0.1 Beta
+
+- Corrected chat queries to request newest-first results and stop paging once results are outside the configured sync window.
+- Deferred video downloads until playback so media-heavy conversations display immediately.
+- Prevented polling from competing with conversation loads and message sends.
+- Made successful sends update the conversation immediately instead of waiting for a complete history refetch.
+- Intercepted desktop Enter before the composer can insert a newline; Shift+Enter remains newline.
+- Restored Windows Phone status-bar contrast in Light mode.
+- Kept navigation text, icons, and letter avatars white on blue surfaces in Light mode.
+
 ## v0.3.0.0 Beta
 
 - Added a single dark message action menu with Delete, Forward, Copy, and Save shown only when each action applies.
