@@ -3,21 +3,13 @@ using Windows.Security.Credentials;
 
 namespace WpBlueBubbles.Services
 {
-    public enum AppThemeMode
-    {
-        System,
-        Light,
-        Blue,
-        Dark
-    }
-
     public sealed class ServerSettings
     {
         public string Address { get; set; }
         public string Password { get; set; }
         public int MessagesPerChat { get; set; }
         public int SyncTimeframeDays { get; set; }
-        public AppThemeMode ThemeMode { get; set; }
+        public bool OledBlack { get; set; }
         public bool UseAccentColor { get; set; }
         public bool LargerUi { get; set; }
         public bool SendReadReceipts { get; set; }
@@ -35,7 +27,6 @@ namespace WpBlueBubbles.Services
         private const string SyncTimeframeDaysKey = "SyncTimeframeDays";
         private const string SyncDefaultsVersionKey = "SyncDefaultsVersion";
         private const string OledBlackKey = "OledBlack";
-        private const string ThemeModeKey = "ThemeMode";
         private const string UseAccentColorKey = "UseAccentColor";
         private const string LargerUiKey = "LargerUi";
         private const string SendReadReceiptsKey = "SendReadReceipts";
@@ -51,7 +42,7 @@ namespace WpBlueBubbles.Services
                 Password = LoadPassword(),
                 MessagesPerChat = ReadInteger(values, MessagesPerChatKey, 15, 1, 50),
                 SyncTimeframeDays = ReadInteger(values, SyncTimeframeDaysKey, 7, 0, 3650),
-                ThemeMode = ReadThemeMode(values),
+                OledBlack = ReadBoolean(values, OledBlackKey, true),
                 UseAccentColor = ReadBoolean(values, UseAccentColorKey),
                 LargerUi = ReadBoolean(values, LargerUiKey),
                 SendReadReceipts = ReadBoolean(values, SendReadReceiptsKey),
@@ -84,10 +75,10 @@ namespace WpBlueBubbles.Services
             values[SyncTimeframeDaysKey] = timeframeDays < 0 ? 0 : timeframeDays;
         }
 
-        public static void SaveAppearance(AppThemeMode themeMode, bool useAccentColor, bool largerUi)
+        public static void SaveAppearance(bool oledBlack, bool useAccentColor, bool largerUi)
         {
             var values = ApplicationData.Current.LocalSettings.Values;
-            values[ThemeModeKey] = themeMode.ToString();
+            values[OledBlackKey] = oledBlack;
             values[UseAccentColorKey] = useAccentColor;
             values[LargerUiKey] = largerUi;
         }
@@ -141,15 +132,6 @@ namespace WpBlueBubbles.Services
         private static bool ReadBoolean(Windows.Foundation.Collections.IPropertySet values, string key, bool fallback = false)
         {
             return values.ContainsKey(key) && values[key] is bool ? (bool)values[key] : fallback;
-        }
-
-        private static AppThemeMode ReadThemeMode(Windows.Foundation.Collections.IPropertySet values)
-        {
-            object raw;
-            AppThemeMode parsed;
-            if (values.TryGetValue(ThemeModeKey, out raw) && raw != null && System.Enum.TryParse(raw.ToString(), true, out parsed)) return parsed;
-            if (values.ContainsKey(OledBlackKey)) return ReadBoolean(values, OledBlackKey, true) ? AppThemeMode.Dark : AppThemeMode.Blue;
-            return AppThemeMode.System;
         }
 
         private static int ReadInteger(Windows.Foundation.Collections.IPropertySet values, string key, int fallback, int minimum, int maximum)

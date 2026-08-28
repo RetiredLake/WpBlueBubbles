@@ -25,9 +25,9 @@
       </Grid>
     </DataTemplate>
     <DataTemplate x:Key="LargeMessageTemplate">
-      <StackPanel HorizontalAlignment="{Binding BubbleAlignment}" MaxWidth="520" Margin="0,4" Holding="Message_Holding" RightTapped="Message_RightTapped" Tapped="Message_Tapped">
+      <StackPanel HorizontalAlignment="{Binding BubbleAlignment}" MaxWidth="520" Margin="0,4">
         <TextBlock Text="{Binding SenderName}" Visibility="{Binding ShowSenderName, Converter={StaticResource BooleanToVisibilityConverter}}" Foreground="{StaticResource MutedTextBrush}" FontSize="12" Margin="4,0,4,3" TextTrimming="CharacterEllipsis"/>
-        <Border Background="{Binding BubbleBrush}" CornerRadius="6" Padding="12,8"><StackPanel><Image Source="{Binding AttachmentUri}" Visibility="{Binding IsImageAttachment, Converter={StaticResource BooleanToVisibilityConverter}}" MaxWidth="300" MaxHeight="260" Stretch="Uniform" ImageOpened="Media_Opened" Tapped="Image_Tapped"/><Grid><MediaElement Source="{Binding AttachmentUri}" Visibility="{Binding IsVideoAttachment, Converter={StaticResource BooleanToVisibilityConverter}}" AreTransportControlsEnabled="True" AutoPlay="False" MaxWidth="300" MaxHeight="260" MediaOpened="Media_Opened" MediaFailed="AttachmentMedia_Failed"/></Grid><RichTextBlock Foreground="{Binding BubbleTextBrush}" IsTextSelectionEnabled="False" Visibility="{Binding HasText, Converter={StaticResource BooleanToVisibilityConverter}}" FontSize="16" TextWrapping="Wrap" Loaded="MessageText_Loaded" DataContextChanged="MessageText_DataContextChanged" Margin="0,5,0,0"/><TextBlock Text="{Binding AttachmentLabel}" Visibility="{Binding HasNonPreviewAttachment, Converter={StaticResource BooleanToVisibilityConverter}}" Foreground="{Binding BubbleTextBrush}" FontSize="12" Margin="0,5,0,0"/></StackPanel></Border>
+        <Border Background="{Binding BubbleBrush}" CornerRadius="6" Padding="12,8"><StackPanel><Image Source="{Binding AttachmentUri}" Visibility="{Binding IsImageAttachment, Converter={StaticResource BooleanToVisibilityConverter}}" MaxWidth="300" MaxHeight="260" Stretch="Uniform" ImageOpened="Media_Opened" Holding="Media_Holding" RightTapped="Media_RightTapped" Tapped="Image_Tapped"/><Grid Holding="Media_Holding" RightTapped="Media_RightTapped"><MediaElement Source="{Binding AttachmentUri}" Visibility="{Binding IsVideoAttachment, Converter={StaticResource BooleanToVisibilityConverter}}" AreTransportControlsEnabled="True" AutoPlay="False" MaxWidth="300" MaxHeight="260" MediaOpened="Media_Opened" MediaFailed="AttachmentMedia_Failed"/></Grid><RichTextBlock IsTextSelectionEnabled="False" Visibility="{Binding HasText, Converter={StaticResource BooleanToVisibilityConverter}}" FontSize="16" TextWrapping="Wrap" Holding="Message_Holding" RightTapped="Message_RightTapped" Loaded="MessageText_Loaded" DataContextChanged="MessageText_DataContextChanged" Margin="0,5,0,0"/><TextBlock Text="{Binding AttachmentLabel}" Visibility="{Binding HasNonPreviewAttachment, Converter={StaticResource BooleanToVisibilityConverter}}" Foreground="White" FontSize="12" Margin="0,5,0,0"/></StackPanel></Border>
         <TextBlock Text="{Binding TimeLabel}" Foreground="{StaticResource MutedTextBrush}" FontSize="11" HorizontalAlignment="Right" Margin="0,3,2,0"/>
       </StackPanel>
     </DataTemplate>
@@ -35,7 +35,7 @@
   <Grid x:Name="RootGrid" Background="{StaticResource AppBackgroundBrush}">
     <SplitView x:Name="NavigationSplitView" DisplayMode="Overlay" OpenPaneLength="250" CompactPaneLength="0" PaneBackground="{StaticResource MessengerBlueBrush}">
       <SplitView.Pane>
-        <Grid x:Name="NavigationPaneGrid" Padding="14,20,12,14" RequestedTheme="Dark">
+        <Grid x:Name="NavigationPaneGrid" Padding="14,20,12,14">
           <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
           <StackPanel Orientation="Horizontal">
             <Border x:Name="NavigationAvatar" Width="42" Height="42" CornerRadius="21" Background="#18000000">
@@ -69,7 +69,7 @@
 
           <Grid Grid.Row="1">
             <Grid.ColumnDefinitions><ColumnDefinition x:Name="ChatColumn" Width="*"/><ColumnDefinition x:Name="DividerColumn" Width="0"/><ColumnDefinition x:Name="ConversationColumn" Width="0"/></Grid.ColumnDefinitions>
-            <ProgressBar x:Name="ConversationLoadingProgress" Grid.ColumnSpan="3" Height="5" Margin="0,-2,0,0" VerticalAlignment="Top" HorizontalAlignment="Stretch" IsIndeterminate="True" Foreground="{StaticResource MessengerBlueBrush}" Background="Transparent" Visibility="Collapsed" Canvas.ZIndex="20"/>
+            <ProgressBar x:Name="InitialLoadingProgress" Grid.ColumnSpan="3" Height="5" Margin="0,-2,0,0" VerticalAlignment="Top" HorizontalAlignment="Stretch" IsIndeterminate="False" Foreground="{StaticResource MessengerBlueBrush}" Background="Transparent" Visibility="Collapsed" Canvas.ZIndex="20"/>
 
             <Grid x:Name="ChatsPane" Grid.Column="0" Grid.ColumnSpan="3" Background="{StaticResource PanelBackgroundBrush}">
               <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
@@ -110,9 +110,9 @@
                 <ListView.ItemContainerStyle><Style TargetType="ListViewItem"><Setter Property="HorizontalContentAlignment" Value="Stretch"/><Setter Property="Padding" Value="0"/></Style></ListView.ItemContainerStyle>
                 <ListView.ItemTemplate>
                   <DataTemplate>
-                    <StackPanel HorizontalAlignment="{Binding BubbleAlignment}" MaxWidth="460" Margin="0,2" Holding="Message_Holding" RightTapped="Message_RightTapped" Tapped="Message_Tapped">
+                    <StackPanel HorizontalAlignment="{Binding BubbleAlignment}" MaxWidth="460" Margin="0,2">
                       <TextBlock Text="{Binding SenderName}" Visibility="{Binding ShowSenderName, Converter={StaticResource BooleanToVisibilityConverter}}" Foreground="{StaticResource MutedTextBrush}" FontSize="12" Margin="4,0,4,3" TextTrimming="CharacterEllipsis"/>
-                      <Border Background="{Binding BubbleBrush}" CornerRadius="5" Padding="10,6"><StackPanel><Image Source="{Binding AttachmentUri}" Visibility="{Binding IsImageAttachment, Converter={StaticResource BooleanToVisibilityConverter}}" MaxWidth="270" MaxHeight="230" Stretch="Uniform" ImageOpened="Media_Opened" Tapped="Image_Tapped"/><Grid><MediaElement Source="{Binding AttachmentUri}" Visibility="{Binding IsVideoAttachment, Converter={StaticResource BooleanToVisibilityConverter}}" AreTransportControlsEnabled="True" AutoPlay="False" MaxWidth="270" MaxHeight="230" MediaOpened="Media_Opened" MediaFailed="AttachmentMedia_Failed"/></Grid><RichTextBlock Foreground="{Binding BubbleTextBrush}" IsTextSelectionEnabled="False" Visibility="{Binding HasText, Converter={StaticResource BooleanToVisibilityConverter}}" FontSize="15" TextWrapping="Wrap" Loaded="MessageText_Loaded" DataContextChanged="MessageText_DataContextChanged" Margin="0,4,0,0"/><TextBlock Text="{Binding AttachmentLabel}" Visibility="{Binding HasNonPreviewAttachment, Converter={StaticResource BooleanToVisibilityConverter}}" Foreground="{Binding BubbleTextBrush}" FontSize="11" Margin="0,4,0,0"/></StackPanel></Border>
+                      <Border Background="{Binding BubbleBrush}" CornerRadius="5" Padding="10,6"><StackPanel><Image Source="{Binding AttachmentUri}" Visibility="{Binding IsImageAttachment, Converter={StaticResource BooleanToVisibilityConverter}}" MaxWidth="270" MaxHeight="230" Stretch="Uniform" ImageOpened="Media_Opened" Holding="Media_Holding" RightTapped="Media_RightTapped" Tapped="Image_Tapped"/><Grid Holding="Media_Holding" RightTapped="Media_RightTapped"><MediaElement Source="{Binding AttachmentUri}" Visibility="{Binding IsVideoAttachment, Converter={StaticResource BooleanToVisibilityConverter}}" AreTransportControlsEnabled="True" AutoPlay="False" MaxWidth="270" MaxHeight="230" MediaOpened="Media_Opened" MediaFailed="AttachmentMedia_Failed"/></Grid><RichTextBlock IsTextSelectionEnabled="False" Visibility="{Binding HasText, Converter={StaticResource BooleanToVisibilityConverter}}" FontSize="15" TextWrapping="Wrap" Holding="Message_Holding" RightTapped="Message_RightTapped" Loaded="MessageText_Loaded" DataContextChanged="MessageText_DataContextChanged" Margin="0,4,0,0"/><TextBlock Text="{Binding AttachmentLabel}" Visibility="{Binding HasNonPreviewAttachment, Converter={StaticResource BooleanToVisibilityConverter}}" Foreground="White" FontSize="11" Margin="0,4,0,0"/></StackPanel></Border>
                       <TextBlock Text="{Binding TimeLabel}" Foreground="{StaticResource MutedTextBrush}" FontSize="11" HorizontalAlignment="Right" Margin="0,3,2,0"/>
                     </StackPanel>
                   </DataTemplate>
@@ -176,7 +176,7 @@
 
             <Border BorderBrush="{StaticResource AppBorderBrush}" BorderThickness="0,1,0,0" Margin="0,26,0,22"/>
             <TextBlock Text="Theme" FontSize="22"/>
-            <ComboBox x:Name="ThemeModeBox" Header="App theme" SelectionChanged="ThemeModeBox_SelectionChanged" Margin="0,12,0,0"><ComboBoxItem Tag="System" Content="System"/><ComboBoxItem Tag="Light" Content="Light"/><ComboBoxItem Tag="Blue" Content="Blue"/><ComboBoxItem Tag="Dark" Content="Dark"/></ComboBox>
+            <ToggleSwitch x:Name="OledBlackToggle" Header="OLED black" OffContent="Off" OnContent="On" Toggled="ThemeToggle_Toggled" Margin="0,12,0,0"/>
             <ToggleSwitch x:Name="AccentColorToggle" Header="Use accent color" OffContent="Messenger blue" OnContent="Windows accent" Toggled="ThemeToggle_Toggled" Margin="0,12,0,0"/>
             <ToggleSwitch x:Name="LargerUiToggle" Header="Larger UI" OffContent="Compact" OnContent="Large" Toggled="ThemeToggle_Toggled" Margin="0,12,0,0"/>
 
@@ -199,10 +199,7 @@
             <TextBlock Text="Credits" FontSize="22"/>
             <TextBlock Margin="0,8,0,0"><Run Text="developed by "/><Hyperlink NavigateUri="https://github.com/RetiredLake/WpBlueBubbles"><Run Text="retiredlake"/></Hyperlink></TextBlock>
             <TextBlock x:Name="PackageVersionText" Foreground="{StaticResource MutedTextBrush}" FontSize="14" Margin="0,2,0,0"/>
-            <StackPanel Orientation="Horizontal" Margin="0,16,0,0">
-              <Button x:Name="CheckForUpdateButton" Content="Check for Update" Click="CheckForUpdate_Click"/>
-              <ProgressRing x:Name="UpdateProgressRing" Width="24" Height="24" Margin="12,0,0,0" IsActive="False" Visibility="Collapsed"/>
-            </StackPanel>
+            <StackPanel Orientation="Horizontal" Margin="0,16,0,0"><Button x:Name="CheckForUpdateButton" Content="Check for Update" Click="CheckForUpdate_Click"/><ProgressRing x:Name="UpdateProgressRing" Width="24" Height="24" Margin="12,0,0,0" IsActive="False" Visibility="Collapsed"/></StackPanel>
             <TextBlock x:Name="UpdateStatusText" Foreground="{StaticResource MutedTextBrush}" FontSize="14" TextWrapping="Wrap" Margin="0,6,0,0"/>
           </StackPanel>
           <TextBlock x:Name="ConnectError" Foreground="#FFFF8C82" TextWrapping="Wrap"/>

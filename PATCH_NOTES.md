@@ -3,41 +3,15 @@
 All releases are beta software. Versions before v0.2.0.0 are retained as legacy
 builds and may contain bugs fixed by later releases.
 
-## v0.3.0.3 Beta
+## v3.1.0.0 Beta Candidate
 
-- Limited the rolling-dots indicator to initial chat-list and conversation loads; background refreshes no longer display or strand it.
-- Changed video playback to authenticated stream-first loading with the proven local-file path as a decode fallback.
-- Corrected mixed text/media action detection so Forward, Copy, and Save can appear together.
-- Allowed the action flyout to choose an on-screen placement instead of clipping actions above messages.
-- Restored Delete chat near the top of the conversation menu so it remains visible on phone-sized menus.
-
-## v0.3.0.2 Beta
-
-- Restored the BlueBubbles chat-query payload after v0.3.0.1 caused HTTP 400 responses during connection and refresh.
-- Added the native Windows indeterminate rolling-dots indicator beneath the app header while loading chats and conversations.
-- Uses Messenger blue or the selected Windows accent color for the loading animation.
-- Retains the nonblocking send, on-demand video, desktop Enter, and Light-mode contrast fixes from the withdrawn candidate.
-
-## v0.3.0.1 Withdrawn
-
-- Corrected chat queries to request newest-first results and stop paging once results are outside the configured sync window.
-- Deferred video downloads until playback so media-heavy conversations display immediately.
-- Prevented polling from competing with conversation loads and message sends.
-- Made successful sends update the conversation immediately instead of waiting for a complete history refetch.
-- Intercepted desktop Enter before the composer can insert a newline; Shift+Enter remains newline.
-- Restored Windows Phone status-bar contrast in Light mode.
-- Kept navigation text, icons, and letter avatars white on blue surfaces in Light mode.
-
-## v0.3.0.0 Beta
-
-- Added a single dark message action menu with Delete, Forward, Copy, and Save shown only when each action applies.
-- Added confirmed server-side message deletion for Private API servers; deletion does not unsend the message.
-- Added forwarding for text and multiple attachments through the existing Compose recipient flow.
-- Replaced the OLED toggle with System, Light, Blue, and Dark themes; System is the default and follows Windows.
-- Preserved Messenger blue or the optional Windows accent for outbound messages while incoming messages remain gray.
-- Added a manual GitHub update checker that downloads the latest regular-release app bundle and opens the Windows installer.
-- Fixed desktop keyboard handling so Enter is always consumed as Send, including failed sends, while Shift+Enter inserts a newline.
-- Added physical-keyboard focus routing so typing in a conversation enters the composer unless another text field is active.
+- Rebased the application UI, media renderer, connection flow, polling, and send path on the proven v0.2.2.1 codebase.
+- Removed the accumulated v0.3.x interaction and media changes responsible for performance and image regressions.
+- Backported a unified dark action menu without changing the stable media templates or gesture handlers.
+- Added Forward, Copy, Save, and Private API message deletion; retained the stable confirmed Delete chat implementation.
+- Added accent-aware Windows rolling dots only for initial chat-list and user-opened conversation loads.
+- Backported the manual GitHub app-bundle updater without adding startup network work.
+- Uses a major version jump because this recovery release intentionally replaces the v0.3.x line.
 
 ## v0.2.2.1 Beta
 
