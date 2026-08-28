@@ -3,7 +3,14 @@
 All releases are beta software. Versions before v0.2.0.0 are retained as legacy
 builds and may contain bugs fixed by later releases.
 
-## v0.3.0.1 Beta
+## v0.3.0.2 Beta
+
+- Restored the BlueBubbles chat-query payload after v0.3.0.1 caused HTTP 400 responses during connection and refresh.
+- Added the native Windows indeterminate rolling-dots indicator beneath the app header while loading chats and conversations.
+- Uses Messenger blue or the selected Windows accent color for the loading animation.
+- Retains the nonblocking send, on-demand video, desktop Enter, and Light-mode contrast fixes from the withdrawn candidate.
+
+## v0.3.0.1 Withdrawn
 
 - Corrected chat queries to request newest-first results and stop paging once results are outside the configured sync window.
 - Deferred video downloads until playback so media-heavy conversations display immediately.

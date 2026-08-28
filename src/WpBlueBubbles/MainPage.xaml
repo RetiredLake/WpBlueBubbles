@@ -69,6 +69,7 @@
 
           <Grid Grid.Row="1">
             <Grid.ColumnDefinitions><ColumnDefinition x:Name="ChatColumn" Width="*"/><ColumnDefinition x:Name="DividerColumn" Width="0"/><ColumnDefinition x:Name="ConversationColumn" Width="0"/></Grid.ColumnDefinitions>
+            <ProgressBar x:Name="ConversationLoadingProgress" Grid.ColumnSpan="3" Height="5" Margin="0,-2,0,0" VerticalAlignment="Top" HorizontalAlignment="Stretch" IsIndeterminate="True" Foreground="{StaticResource MessengerBlueBrush}" Background="Transparent" Visibility="Collapsed" Canvas.ZIndex="20"/>
 
             <Grid x:Name="ChatsPane" Grid.Column="0" Grid.ColumnSpan="3" Background="{StaticResource PanelBackgroundBrush}">
               <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>

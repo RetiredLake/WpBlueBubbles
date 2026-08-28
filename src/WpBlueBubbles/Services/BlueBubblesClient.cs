@@ -70,7 +70,6 @@ namespace WpBlueBubbles.Services
             const int pageSize = 200;
             const int maximumChats = 10000;
             var result = new List<ChatItem>();
-            var cutoff = timeframeDays > 0 ? DateTimeOffset.UtcNow.AddDays(-timeframeDays).ToUnixTimeMilliseconds() : 0;
             for (var offset = 0; offset < maximumChats; offset += pageSize)
             {
                 var body = new JsonObject
@@ -78,18 +77,16 @@ namespace WpBlueBubbles.Services
                     ["with"] = new JsonArray { JsonValue.CreateStringValue("participants"), JsonValue.CreateStringValue("lastmessage") },
                     ["offset"] = JsonValue.CreateNumberValue(offset),
                     ["limit"] = JsonValue.CreateNumberValue(pageSize),
-                    ["sort"] = JsonValue.CreateStringValue("DESC")
+                    ["sort"] = JsonValue.CreateStringValue("lastmessage")
                 };
                 var root = await PostRootAsync("chat/query", body, true);
                 var data = GetDataArray(root);
-                var page = new List<ChatItem>();
-                foreach (var value in data) if (value.ValueType == JsonValueType.Object) page.Add(ChatItem.FromJson(value.GetObject()));
-                result.AddRange(page);
+                foreach (var value in data) if (value.ValueType == JsonValueType.Object) result.Add(ChatItem.FromJson(value.GetObject()));
                 if (data.Count < pageSize) break;
-                if (cutoff > 0 && page.Count > 0 && page.Max(chat => chat.LastMessageTimestamp) < cutoff) break;
             }
             if (timeframeDays > 0)
             {
+                var cutoff = DateTimeOffset.UtcNow.AddDays(-timeframeDays).ToUnixTimeMilliseconds();
                 result = result.FindAll(chat => chat.LastMessageTimestamp >= cutoff);
             }
             return result;

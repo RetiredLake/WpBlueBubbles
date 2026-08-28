@@ -1297,6 +1297,11 @@ namespace WpBlueBubbles
 
         private void SetSyncing(bool syncing, string detail)
         {
+            if (ConversationLoadingProgress != null)
+            {
+                ConversationLoadingProgress.IsIndeterminate = syncing;
+                ConversationLoadingProgress.Visibility = syncing ? Visibility.Visible : Visibility.Collapsed;
+            }
             if (!UsePhoneSyncStatus) return;
             if (UseLegacyInAppSyncStatus && syncing)
             {
