@@ -3,16 +3,25 @@ using Windows.Security.Credentials;
 
 namespace WpBlueBubbles.Services
 {
+    public enum AppThemeMode
+    {
+        System,
+        Light,
+        Blue,
+        Dark
+    }
+
     public sealed class ServerSettings
     {
         public string Address { get; set; }
         public string Password { get; set; }
         public int MessagesPerChat { get; set; }
         public int SyncTimeframeDays { get; set; }
-        public bool OledBlack { get; set; }
+        public AppThemeMode ThemeMode { get; set; }
         public bool UseAccentColor { get; set; }
         public bool LargerUi { get; set; }
         public bool SendReadReceipts { get; set; }
+        public bool SendTypingIndicators { get; set; }
         public bool DeveloperMode { get; set; }
         public int PollIntervalSeconds { get; set; }
         public bool IsComplete { get { return !string.IsNullOrWhiteSpace(Address) && !string.IsNullOrWhiteSpace(Password); } }
@@ -27,9 +36,11 @@ namespace WpBlueBubbles.Services
         private const string SyncTimeframeDaysKey = "SyncTimeframeDays";
         private const string SyncDefaultsVersionKey = "SyncDefaultsVersion";
         private const string OledBlackKey = "OledBlack";
+        private const string ThemeModeKey = "ThemeMode";
         private const string UseAccentColorKey = "UseAccentColor";
         private const string LargerUiKey = "LargerUi";
         private const string SendReadReceiptsKey = "SendReadReceipts";
+        private const string SendTypingIndicatorsKey = "SendTypingIndicators";
         private const string DeveloperModeKey = "DeveloperMode";
         private const string PollIntervalSecondsKey = "PollIntervalSeconds";
 
@@ -42,10 +53,11 @@ namespace WpBlueBubbles.Services
                 Password = LoadPassword(),
                 MessagesPerChat = ReadInteger(values, MessagesPerChatKey, 15, 1, 50),
                 SyncTimeframeDays = ReadInteger(values, SyncTimeframeDaysKey, 7, 0, 3650),
-                OledBlack = ReadBoolean(values, OledBlackKey, true),
+                ThemeMode = ReadThemeMode(values),
                 UseAccentColor = ReadBoolean(values, UseAccentColorKey),
                 LargerUi = ReadBoolean(values, LargerUiKey),
                 SendReadReceipts = ReadBoolean(values, SendReadReceiptsKey),
+                SendTypingIndicators = ReadBoolean(values, SendTypingIndicatorsKey),
                 DeveloperMode = ReadBoolean(values, DeveloperModeKey),
                 PollIntervalSeconds = ReadInteger(values, PollIntervalSecondsKey, 5, 3, 60)
             };
@@ -75,10 +87,10 @@ namespace WpBlueBubbles.Services
             values[SyncTimeframeDaysKey] = timeframeDays < 0 ? 0 : timeframeDays;
         }
 
-        public static void SaveAppearance(bool oledBlack, bool useAccentColor, bool largerUi)
+        public static void SaveAppearance(AppThemeMode themeMode, bool useAccentColor, bool largerUi)
         {
             var values = ApplicationData.Current.LocalSettings.Values;
-            values[OledBlackKey] = oledBlack;
+            values[ThemeModeKey] = themeMode.ToString();
             values[UseAccentColorKey] = useAccentColor;
             values[LargerUiKey] = largerUi;
         }
@@ -91,6 +103,11 @@ namespace WpBlueBubbles.Services
         public static void SaveSendReadReceipts(bool enabled)
         {
             ApplicationData.Current.LocalSettings.Values[SendReadReceiptsKey] = enabled;
+        }
+
+        public static void SaveSendTypingIndicators(bool enabled)
+        {
+            ApplicationData.Current.LocalSettings.Values[SendTypingIndicatorsKey] = enabled;
         }
 
         public static void SavePollInterval(int seconds)
@@ -132,6 +149,15 @@ namespace WpBlueBubbles.Services
         private static bool ReadBoolean(Windows.Foundation.Collections.IPropertySet values, string key, bool fallback = false)
         {
             return values.ContainsKey(key) && values[key] is bool ? (bool)values[key] : fallback;
+        }
+
+        private static AppThemeMode ReadThemeMode(Windows.Foundation.Collections.IPropertySet values)
+        {
+            object raw;
+            AppThemeMode parsed;
+            if (values.TryGetValue(ThemeModeKey, out raw) && raw != null && System.Enum.TryParse(raw.ToString(), true, out parsed)) return parsed;
+            if (values.ContainsKey(OledBlackKey)) return ReadBoolean(values, OledBlackKey, true) ? AppThemeMode.Dark : AppThemeMode.Blue;
+            return AppThemeMode.System;
         }
 
         private static int ReadInteger(Windows.Foundation.Collections.IPropertySet values, string key, int fallback, int minimum, int maximum)

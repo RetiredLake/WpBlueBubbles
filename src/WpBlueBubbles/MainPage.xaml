@@ -176,7 +176,7 @@
 
             <Border BorderBrush="{StaticResource AppBorderBrush}" BorderThickness="0,1,0,0" Margin="0,26,0,22"/>
             <TextBlock Text="Theme" FontSize="22"/>
-            <ToggleSwitch x:Name="OledBlackToggle" Header="OLED black" OffContent="Off" OnContent="On" Toggled="ThemeToggle_Toggled" Margin="0,12,0,0"/>
+            <ComboBox x:Name="ThemeModeBox" Header="App theme" SelectionChanged="ThemeModeBox_SelectionChanged" Margin="0,12,0,0"><ComboBoxItem Tag="System" Content="System"/><ComboBoxItem Tag="Light" Content="Light"/><ComboBoxItem Tag="Blue" Content="Blue"/><ComboBoxItem Tag="Dark" Content="Dark"/></ComboBox>
             <ToggleSwitch x:Name="AccentColorToggle" Header="Use accent color" OffContent="Messenger blue" OnContent="Windows accent" Toggled="ThemeToggle_Toggled" Margin="0,12,0,0"/>
             <ToggleSwitch x:Name="LargerUiToggle" Header="Larger UI" OffContent="Compact" OnContent="Large" Toggled="ThemeToggle_Toggled" Margin="0,12,0,0"/>
 
@@ -188,6 +188,7 @@
             <TextBlock x:Name="PrivateApiStatusText" Text="Status unavailable" TextWrapping="Wrap"/>
             <HyperlinkButton x:Name="PrivateApiRefreshButton" Content="Refresh status" Click="PrivateApiRefresh_Click" HorizontalAlignment="Left" Padding="0" Margin="0,4,0,0" Visibility="Collapsed"/>
             <ToggleSwitch x:Name="SendReadReceiptsToggle" Header="Send read receipts" OffContent="Off" OnContent="On" Toggled="SendReadReceiptsToggle_Toggled" Margin="0,14,0,0"/>
+            <ToggleSwitch x:Name="SendTypingIndicatorsToggle" Header="Send typing indicators" OffContent="Off" OnContent="On" Toggled="SendTypingIndicatorsToggle_Toggled" Margin="0,10,0,0"/>
             <ToggleSwitch x:Name="DeveloperModeToggle" Header="Developer mode" OffContent="Off" OnContent="On" Toggled="DeveloperModeToggle_Toggled" Margin="0,10,0,0"/>
 
             <Border BorderBrush="{StaticResource AppBorderBrush}" BorderThickness="0,1,0,0" Margin="0,26,0,22"/>

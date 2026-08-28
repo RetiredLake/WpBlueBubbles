@@ -3,6 +3,14 @@
 All releases are beta software. Versions before v0.2.0.0 are retained as legacy
 builds and may contain bugs fixed by later releases.
 
+## v0.3.1.1 Beta
+
+- Restores the System, Light, Blue, and Dark app theme selector without changing the stable media, polling, or message-loading paths.
+- Adds Private API gated Send read receipts and Send typing indicators settings; both default to off.
+- Adds carefully isolated message actions in the order Delete, Forward, Copy, and Save.
+- Message deletion requires Private API and an explicit permanent-deletion confirmation.
+- Forwarding reuses the existing compose and attachment-send workflow.
+
 ## v0.3.1.0 Beta
 
 - Restored the complete v0.2.2.1 application codebase, including its proven image/media renderer, connection flow, polling, sending, actions, themes, and settings.
