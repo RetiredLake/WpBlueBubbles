@@ -3,6 +3,14 @@
 All releases are beta software. Versions before v0.2.0.0 are retained as legacy
 builds and may contain bugs fixed by later releases.
 
+## v0.3.0.3 Beta
+
+- Limited the rolling-dots indicator to initial chat-list and conversation loads; background refreshes no longer display or strand it.
+- Changed video playback to authenticated stream-first loading with the proven local-file path as a decode fallback.
+- Corrected mixed text/media action detection so Forward, Copy, and Save can appear together.
+- Allowed the action flyout to choose an on-screen placement instead of clipping actions above messages.
+- Restored Delete chat near the top of the conversation menu so it remains visible on phone-sized menus.
+
 ## v0.3.0.2 Beta
 
 - Restored the BlueBubbles chat-query payload after v0.3.0.1 caused HTTP 400 responses during connection and refresh.

@@ -86,6 +86,8 @@ namespace WpBlueBubbles
         private bool _contextMenuOpen;
         private int _foregroundRequestDepth;
         private bool _handlingDesktopEnter;
+        private readonly HashSet<string> _videoFallbackAttempts = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        private readonly HashSet<string> _videoPlayRequests = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         private AppThemeMode _themeMode = AppThemeMode.System;
         private readonly UISettings _uiSettings = new UISettings();
         private static readonly bool UseLegacyInAppSyncStatus = false;
@@ -251,6 +253,7 @@ namespace WpBlueBubbles
                 catch { NavigationIdentityText.Text = "BlueBubbles"; }
                 SettingsStore.Save(address, password);
                 SettingsStore.SaveSyncOptions(_messagesPerChat, _syncTimeframeDays);
+                ShowInitialLoadingDots();
                 SetSyncing(true, "Requesting chat list from BlueBubbles...");
                 await LoadContactsAsync();
                 Exception initialSyncError = null;
@@ -274,6 +277,7 @@ namespace WpBlueBubbles
             }
             finally
             {
+                HideInitialLoadingDots();
                 SetSyncing(false, null);
                 ConnectButton.IsEnabled = true;
                 ConnectProgress.IsActive = false;
@@ -405,10 +409,11 @@ namespace WpBlueBubbles
                 ReturnToConversation();
             }
             ShowStatus("Loading messages...", false);
+            ShowInitialLoadingDots();
             BeginForegroundRequest();
             try { SetSyncing(true, "Syncing messages..."); await RefreshMessagesAsync(true); await MarkSelectedChatReadAsync(); ShowStatus(string.Empty, false); }
             catch (Exception ex) { ShowStatus(FriendlyError(ex, "open the conversation"), true); }
-            finally { EndForegroundRequest(); SetSyncing(false, null); }
+            finally { HideInitialLoadingDots(); EndForegroundRequest(); SetSyncing(false, null); }
         }
 
         private async Task SendCurrentMessageAsync()
@@ -756,15 +761,17 @@ namespace WpBlueBubbles
         {
             if (_contextMenuOpen || element == null || message == null) return;
             var actions = new List<Tuple<string, Func<Task>, string>>();
+            var hasText = !string.IsNullOrWhiteSpace(message.Text);
+            var hasMedia = !string.IsNullOrWhiteSpace(message.AttachmentGuid) || message.Attachments.Any(item => !string.IsNullOrWhiteSpace(item.Guid));
             if (_serverCapabilities.CanUsePrivateApi && _client != null && _selectedChat != null && !string.IsNullOrWhiteSpace(_selectedChat.Guid) && !string.IsNullOrWhiteSpace(message.Guid))
             {
                 actions.Add(Tuple.Create<string, Func<Task>, string>("Delete", () => DeleteMessageAsync(message), "delete the message"));
             }
-            if (message.HasText || message.HasAttachments)
+            if (hasText || hasMedia)
             {
                 actions.Add(Tuple.Create<string, Func<Task>, string>("Forward", () => ForwardMessageAsync(message), "forward the message"));
             }
-            if (message.HasText)
+            if (hasText)
             {
                 actions.Add(Tuple.Create<string, Func<Task>, string>("Copy", () =>
                 {
@@ -775,8 +782,8 @@ namespace WpBlueBubbles
                     return Task.CompletedTask;
                 }, "copy the message"));
             }
-            var image = message.Attachments.FirstOrDefault(item => item.IsImage);
-            if (image != null || message.IsImageAttachment)
+            var image = message.Attachments.FirstOrDefault(item => item.IsImage) ?? (message.IsImageAttachment ? new MessageAttachmentItem { Guid = message.AttachmentGuid, Name = message.AttachmentLabel, MimeType = message.AttachmentMimeType, IsImage = true } : null);
+            if (image != null && !string.IsNullOrWhiteSpace(image.Guid))
             {
                 actions.Add(Tuple.Create<string, Func<Task>, string>("Save", () => SaveImageAsync(message, image), "save the image"));
             }
@@ -791,7 +798,7 @@ namespace WpBlueBubbles
             presenterStyle.Setters.Add(new Setter(Control.BackgroundProperty, new SolidColorBrush(Windows.UI.Colors.Black)));
             presenterStyle.Setters.Add(new Setter(Control.ForegroundProperty, new SolidColorBrush(Windows.UI.Colors.White)));
             presenterStyle.Setters.Add(new Setter(Control.PaddingProperty, new Thickness(0)));
-            var flyout = new Flyout { Content = content, Placement = FlyoutPlacementMode.Top, FlyoutPresenterStyle = presenterStyle };
+            var flyout = new Flyout { Content = content, Placement = FlyoutPlacementMode.Auto, FlyoutPresenterStyle = presenterStyle };
             flyout.Closed += (sender, args) => _contextMenuOpen = false;
             foreach (var choice in actions)
             {
@@ -1297,11 +1304,6 @@ namespace WpBlueBubbles
 
         private void SetSyncing(bool syncing, string detail)
         {
-            if (ConversationLoadingProgress != null)
-            {
-                ConversationLoadingProgress.IsIndeterminate = syncing;
-                ConversationLoadingProgress.Visibility = syncing ? Visibility.Visible : Visibility.Collapsed;
-            }
             if (!UsePhoneSyncStatus) return;
             if (UseLegacyInAppSyncStatus && syncing)
             {
@@ -1315,6 +1317,20 @@ namespace WpBlueBubbles
             }
             UpdatePhoneSyncStatus(syncing, detail);
             if (UseLegacyInAppSyncStatus) UpdateLegacyInAppSyncStatus(syncing, detail);
+        }
+
+        private void ShowInitialLoadingDots()
+        {
+            if (ConversationLoadingProgress == null) return;
+            ConversationLoadingProgress.IsIndeterminate = true;
+            ConversationLoadingProgress.Visibility = Visibility.Visible;
+        }
+
+        private void HideInitialLoadingDots()
+        {
+            if (ConversationLoadingProgress == null) return;
+            ConversationLoadingProgress.IsIndeterminate = false;
+            ConversationLoadingProgress.Visibility = Visibility.Collapsed;
         }
 
         private static async Task EnsurePhoneStatusBarAsync()
@@ -1750,12 +1766,12 @@ namespace WpBlueBubbles
             var delete = new UICommand("Delete chat");
             var menu = new PopupMenu();
             menu.Commands.Add(pin);
+            menu.Commands.Add(delete);
             if (_selectedChat.IsGroupChat)
             {
                 menu.Commands.Add(rename);
                 menu.Commands.Add(leave);
             }
-            menu.Commands.Add(delete);
             var point = ChatActionsButton.TransformToVisual(null).TransformPoint(new Point());
             var selected = await menu.ShowForSelectionAsync(new Rect(point, ChatActionsButton.RenderSize));
             if (selected == pin)
@@ -2140,9 +2156,9 @@ namespace WpBlueBubbles
             var message = element?.DataContext as MessageItem;
             if (_client == null || message == null || !message.IsVideoAttachment || !string.IsNullOrWhiteSpace(message.AttachmentUri)) return;
             e.Handled = true;
-            BeginForegroundRequest();
-            try { await PrepareVideoAsync(_client, message); }
-            finally { EndForegroundRequest(); }
+            _videoPlayRequests.Add(message.Guid ?? message.AttachmentGuid);
+            message.SetAttachmentUri(_client.GetAttachmentDownloadUri(message.AttachmentGuid));
+            await Task.CompletedTask;
         }
 
         private string DescribeSharedFiles()
@@ -2151,11 +2167,19 @@ namespace WpBlueBubbles
             return _sharedFiles.Count + " files";
         }
 
-        private void AttachmentMedia_Failed(object sender, ExceptionRoutedEventArgs e)
+        private async void AttachmentMedia_Failed(object sender, ExceptionRoutedEventArgs e)
         {
             var media = sender as FrameworkElement;
             var message = media?.DataContext as MessageItem;
             if (message == null || !message.IsVideoAttachment) return;
+            var key = message.Guid ?? message.AttachmentGuid;
+            if (_client != null && !string.IsNullOrWhiteSpace(key) && _videoFallbackAttempts.Add(key))
+            {
+                BeginForegroundRequest();
+                try { message.SetAttachmentUri(string.Empty); await PrepareVideoAsync(_client, message); }
+                finally { EndForegroundRequest(); }
+                return;
+            }
             message.MarkAttachmentFailed();
             if (DeveloperModeToggle.IsOn) ShowStatus("Developer details: MediaElement could not decode or open this video.", true);
         }
@@ -2169,6 +2193,10 @@ namespace WpBlueBubbles
 
         private async void Media_Opened(object sender, RoutedEventArgs e)
         {
+            var media = sender as MediaElement;
+            var message = media?.DataContext as MessageItem;
+            var key = message == null ? null : message.Guid ?? message.AttachmentGuid;
+            if (!string.IsNullOrWhiteSpace(key) && _videoPlayRequests.Remove(key)) media.Play();
             if (DateTimeOffset.Now <= _pinMessagesToBottomUntil) await ScrollToNewestMessageAsync();
         }
 
