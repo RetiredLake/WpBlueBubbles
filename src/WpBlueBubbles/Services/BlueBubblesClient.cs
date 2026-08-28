@@ -47,6 +47,12 @@ namespace WpBlueBubbles.Services
             };
         }
 
+        public async Task<ServerCapabilities> RefreshServerCapabilitiesAsync()
+        {
+            _serverInfoSource = null;
+            return await GetServerCapabilitiesAsync();
+        }
+
         public async Task<string> GetRegisteredPhoneNumberAsync()
         {
             var source = await GetServerInfoSourceAsync();

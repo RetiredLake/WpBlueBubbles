@@ -7,6 +7,7 @@ using System.Net.Http;
 using System.Reflection;
 using System.Text;
 using System.Text.RegularExpressions;
+using System.Threading;
 using System.Threading.Tasks;
 using Windows.System;
 using Windows.ApplicationModel.DataTransfer;
@@ -80,6 +81,8 @@ namespace WpBlueBubbles
         private string _typingChatGuid;
         private int _availabilityGeneration;
         private string _composeService;
+        private readonly Dictionary<string, Task<string>> _imageLoadTasks = new Dictionary<string, Task<string>>(StringComparer.OrdinalIgnoreCase);
+        private readonly SemaphoreSlim _imageLoadGate = new SemaphoreSlim(3);
         private static readonly bool UseLegacyInAppSyncStatus = false;
         private static readonly bool UsePhoneSyncStatus = false;
 
@@ -127,6 +130,7 @@ namespace WpBlueBubbles
             AccentColorToggle.IsOn = settings.UseAccentColor;
             LargerUiToggle.IsOn = settings.LargerUi;
             DeveloperModeToggle.IsOn = settings.DeveloperMode;
+            _pollTimer.Interval = TimeSpan.FromSeconds(settings.PollIntervalSeconds);
             ApplyTheme(settings.OledBlack, settings.UseAccentColor, settings.LargerUi);
             SetPackageVersion();
             UpdateServerDetails(settings.Address);
@@ -136,7 +140,9 @@ namespace WpBlueBubbles
             _syncTimeframeDays = settings.SyncTimeframeDays;
             MessagesPerChatSlider.Value = _messagesPerChat;
             SelectTimeframe(_syncTimeframeDays);
+            SelectPollInterval(settings.PollIntervalSeconds);
             _settingsLoaded = true;
+            UpdateDeveloperModePresentation();
             UpdateSyncDescription();
             try { await NotificationService.DisableAsync(); }
             catch { }
@@ -205,6 +211,7 @@ namespace WpBlueBubbles
                 MenuButton.Visibility = Visibility.Visible;
                 BackButton.Visibility = Visibility.Collapsed;
             }
+            UpdateHeaderActions(_selectedChat != null && ConversationPane.Visibility == Visibility.Visible);
         }
 
         private async Task<bool> StartClientAsync(string address, string password, bool closeSettings)
@@ -218,6 +225,7 @@ namespace WpBlueBubbles
             {
                 if (_client != null) _client.Dispose();
                 _client = new BlueBubblesClient(address, password);
+                _imageLoadTasks.Clear();
                 _chatStateSignature = null;
                 await _client.TestConnectionAsync();
                 try { _serverCapabilities = await _client.GetServerCapabilitiesAsync(); _serverCapabilitiesKnown = true; }
@@ -327,7 +335,10 @@ namespace WpBlueBubbles
                 var message = received[i];
                 message.UsesSmsColor = selectedChat.UsesSmsColor;
                 message.ResolveSender(selectedChat.IsGroupChat, _contactNames);
-                if (message.IsImageAttachment || message.IsVideoAttachment) message.SetAttachmentUri(client.GetAttachmentDownloadUri(message.AttachmentGuid));
+                // UWP Image cannot reliably consume the authenticated HTTP URL directly.
+                // Images are downloaded lazily when their virtualized item becomes visible.
+                if (message.IsImageAttachment) message.SetAttachmentUri(string.Empty);
+                else if (message.IsVideoAttachment) message.SetAttachmentUri(client.GetAttachmentDownloadUri(message.AttachmentGuid));
                 _messages.Add(message);
                 SetSyncing(true, "Syncing messages: " + (i + 1) + " of " + total);
             }
@@ -423,7 +434,7 @@ namespace WpBlueBubbles
 
         private bool ShouldSendOnEnter(KeyRoutedEventArgs e)
         {
-            if (e.Key != VirtualKey.Enter || _inputPaneVisible) return false;
+            if (e.Key != VirtualKey.Enter) return false;
             if (string.Equals(AnalyticsInfo.DeviceForm, "Phone", StringComparison.OrdinalIgnoreCase)) return false;
             return !Window.Current.CoreWindow.GetKeyState(VirtualKey.Shift).HasFlag(CoreVirtualKeyStates.Down);
         }
@@ -940,6 +951,31 @@ namespace WpBlueBubbles
             SyncTimeframeBox.SelectedIndex = 0;
         }
 
+        private void PollIntervalBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (!_settingsLoaded) return;
+            var item = PollIntervalBox.SelectedItem as ComboBoxItem;
+            int seconds;
+            if (item?.Tag == null || !int.TryParse(item.Tag.ToString(), out seconds)) return;
+            _pollTimer.Interval = TimeSpan.FromSeconds(seconds);
+            SettingsStore.SavePollInterval(seconds);
+            if (_client != null)
+            {
+                _pollTimer.Stop();
+                _pollTimer.Start();
+            }
+        }
+
+        private void SelectPollInterval(int seconds)
+        {
+            for (var i = 0; i < PollIntervalBox.Items.Count; i++)
+            {
+                var item = PollIntervalBox.Items[i] as ComboBoxItem;
+                if (item?.Tag?.ToString() == seconds.ToString()) { PollIntervalBox.SelectedIndex = i; return; }
+            }
+            PollIntervalBox.SelectedIndex = 1;
+        }
+
         private string BuildSyncDescription()
         {
             var range = _syncTimeframeDays == 0 ? "all time" : _syncTimeframeDays == 7 ? "the last 7 days" : _syncTimeframeDays == 30 ? "the last 30 days" : "the last year";
@@ -1040,18 +1076,41 @@ namespace WpBlueBubbles
         private void DeveloperModeToggle_Toggled(object sender, RoutedEventArgs e)
         {
             if (_settingsLoaded) SettingsStore.SaveDeveloperMode(DeveloperModeToggle.IsOn);
+            UpdateDeveloperModePresentation();
+        }
+
+        private void UpdateDeveloperModePresentation()
+        {
+            if (NotificationsStatusText == null || DeveloperModeToggle == null) return;
+            NotificationsStatusText.Text = DeveloperModeToggle.IsOn
+                ? "Notifications and Live Tile are temporarily disabled."
+                : "Notifications and Live Tiles coming soon.";
         }
 
         private void ApplyTheme(bool oledBlack, bool useAccentColor, bool largerUi)
         {
             var resources = Application.Current.Resources;
-            var blue = useAccentColor ? new UISettings().GetColorValue(UIColorType.Accent) : Windows.UI.Color.FromArgb(255, 14, 99, 156);
+            var blue = useAccentColor ? GetWindowsAccentColor() : Windows.UI.Color.FromArgb(255, 14, 99, 156);
             SetBrushColor(resources, "MessengerBlueBrush", blue);
             SetBrushColor(resources, "IncomingMessageBrush", Windows.UI.Color.FromArgb(255, 38, 52, 61));
             SetBrushColor(resources, "AppBackgroundBrush", oledBlack ? Windows.UI.Colors.Black : Windows.UI.Color.FromArgb(255, 7, 17, 23));
             SetBrushColor(resources, "PanelBackgroundBrush", oledBlack ? Windows.UI.Colors.Black : Windows.UI.Color.FromArgb(255, 11, 23, 30));
             SetBrushColor(resources, "HeaderBackgroundBrush", oledBlack ? Windows.UI.Colors.Black : Windows.UI.Color.FromArgb(255, 9, 20, 27));
+            foreach (var message in _messages) message.RefreshBubbleBrush();
             ApplyUiDensity(largerUi);
+        }
+
+        private static Windows.UI.Color GetWindowsAccentColor()
+        {
+            try
+            {
+                object systemAccent;
+                if (Application.Current.Resources.TryGetValue("SystemAccentColor", out systemAccent) && systemAccent is Windows.UI.Color)
+                    return (Windows.UI.Color)systemAccent;
+            }
+            catch { }
+            try { return new UISettings().GetColorValue(UIColorType.Accent); }
+            catch { return Windows.UI.Color.FromArgb(255, 14, 99, 156); }
         }
 
         private void ApplyUiDensity(bool larger)
@@ -1116,6 +1175,29 @@ namespace WpBlueBubbles
             PrivateApiStatusText.Text = !_serverCapabilitiesKnown ? "Status unavailable"
                 : _serverCapabilities.CanUsePrivateApi ? "Connected"
                 : _serverCapabilities.PrivateApiEnabled ? "Enabled, helper disconnected" : "Disabled";
+            PrivateApiRefreshButton.Visibility = _client != null && (!_serverCapabilitiesKnown || !_serverCapabilities.CanUsePrivateApi)
+                ? Visibility.Visible : Visibility.Collapsed;
+        }
+
+        private async void PrivateApiRefresh_Click(object sender, RoutedEventArgs e)
+        {
+            if (_client == null) return;
+            PrivateApiRefreshButton.IsEnabled = false;
+            PrivateApiStatusText.Text = "Checking...";
+            try
+            {
+                _serverCapabilities = await _client.RefreshServerCapabilitiesAsync();
+                _serverCapabilitiesKnown = true;
+                UpdateServerDetails(ServerAddressBox.Text);
+            }
+            catch (Exception ex)
+            {
+                _serverCapabilities = new ServerCapabilities();
+                _serverCapabilitiesKnown = false;
+                UpdateServerDetails(ServerAddressBox.Text);
+                ShowStatus(FriendlyError(ex, "refresh Private API status"), true);
+            }
+            finally { PrivateApiRefreshButton.IsEnabled = true; }
         }
 
         private static string SanitizeServerAddress(string address)
@@ -1147,6 +1229,7 @@ namespace WpBlueBubbles
             _pollTimer.Stop();
             _client?.Dispose();
             _client = null;
+            _imageLoadTasks.Clear();
             _selectedChat = null;
             _allChats.Clear();
             _chats.Clear();
@@ -1166,6 +1249,8 @@ namespace WpBlueBubbles
             AccentColorToggle.IsOn = false;
             DeveloperModeToggle.IsOn = false;
             LargerUiToggle.IsOn = false;
+            _pollTimer.Interval = TimeSpan.FromSeconds(5);
+            SelectPollInterval(5);
             ApplyTheme(true, false, false);
             _serverCapabilitiesKnown = false;
             _serverCapabilities = new ServerCapabilities();
@@ -1211,8 +1296,9 @@ namespace WpBlueBubbles
 
         private void UpdateHeaderActions(bool conversationOpen)
         {
-            if (ComposeButton != null) ComposeButton.Visibility = conversationOpen ? Visibility.Collapsed : Visibility.Visible;
-            if (SearchButton != null) SearchButton.Visibility = conversationOpen ? Visibility.Collapsed : Visibility.Visible;
+            var keepDesktopActions = !UseSinglePaneLayout;
+            if (ComposeButton != null) ComposeButton.Visibility = !conversationOpen || keepDesktopActions ? Visibility.Visible : Visibility.Collapsed;
+            if (SearchButton != null) SearchButton.Visibility = !conversationOpen || keepDesktopActions ? Visibility.Visible : Visibility.Collapsed;
             if (ChatActionsButton != null) ChatActionsButton.Visibility = conversationOpen ? Visibility.Visible : Visibility.Collapsed;
         }
 
@@ -1561,6 +1647,65 @@ namespace WpBlueBubbles
             SharedAttachmentBanner.Text = string.Empty;
             AttachmentBannerHost.Visibility = Visibility.Collapsed;
             SharedComposePreview.Visibility = Visibility.Collapsed;
+        }
+
+        private async void AttachmentImage_Loaded(object sender, RoutedEventArgs e)
+        {
+            var image = sender as Image;
+            var message = image?.DataContext as MessageItem;
+            if (_client == null || message == null || !message.IsImageAttachment || string.IsNullOrWhiteSpace(message.AttachmentGuid)) return;
+            if (!string.IsNullOrWhiteSpace(message.AttachmentUri) && message.AttachmentUri.StartsWith("ms-appdata:", StringComparison.OrdinalIgnoreCase)) return;
+
+            var client = _client;
+            var key = message.AttachmentGuid;
+            Task<string> loadTask;
+            if (!_imageLoadTasks.TryGetValue(key, out loadTask))
+            {
+                loadTask = CacheImageAsync(client, message);
+                _imageLoadTasks[key] = loadTask;
+            }
+
+            try
+            {
+                var uri = await loadTask;
+                if (client == _client && _messages.Contains(message) && message.IsImageAttachment) message.SetAttachmentUri(uri);
+            }
+            catch (Exception ex)
+            {
+                _imageLoadTasks.Remove(key);
+                if (_messages.Contains(message)) message.MarkAttachmentFailed();
+                if (DeveloperModeToggle.IsOn) ShowStatus(FriendlyError(ex, "load the image"), true);
+            }
+        }
+
+        private async Task<string> CacheImageAsync(BlueBubblesClient client, MessageItem message)
+        {
+            await _imageLoadGate.WaitAsync();
+            try
+            {
+                var folder = await ApplicationData.Current.TemporaryFolder.CreateFolderAsync("ImageMedia", CreationCollisionOption.OpenIfExists);
+                var extension = Path.GetExtension(message.AttachmentLabel);
+                if (string.IsNullOrWhiteSpace(extension) || extension.Length > 8) extension = GetImageExtension(message.AttachmentMimeType);
+                var safeGuid = Regex.Replace(message.AttachmentGuid, "[^A-Za-z0-9_-]", "_");
+                var file = await folder.CreateFileAsync(safeGuid + extension, CreationCollisionOption.OpenIfExists);
+                var properties = await file.GetBasicPropertiesAsync();
+                if (properties.Size == 0)
+                {
+                    var bytes = await client.DownloadAttachmentAsync(message.AttachmentGuid);
+                    await FileIO.WriteBytesAsync(file, bytes);
+                }
+                return "ms-appdata:///temp/ImageMedia/" + file.Name;
+            }
+            finally { _imageLoadGate.Release(); }
+        }
+
+        private static string GetImageExtension(string mimeType)
+        {
+            var mime = mimeType ?? string.Empty;
+            if (mime.IndexOf("png", StringComparison.OrdinalIgnoreCase) >= 0) return ".png";
+            if (mime.IndexOf("gif", StringComparison.OrdinalIgnoreCase) >= 0) return ".gif";
+            if (mime.IndexOf("heic", StringComparison.OrdinalIgnoreCase) >= 0) return ".heic";
+            return ".jpg";
         }
 
         private string DescribeSharedFiles()

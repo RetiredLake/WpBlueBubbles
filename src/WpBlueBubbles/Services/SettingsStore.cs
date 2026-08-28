@@ -13,6 +13,7 @@ namespace WpBlueBubbles.Services
         public bool UseAccentColor { get; set; }
         public bool LargerUi { get; set; }
         public bool DeveloperMode { get; set; }
+        public int PollIntervalSeconds { get; set; }
         public bool IsComplete { get { return !string.IsNullOrWhiteSpace(Address) && !string.IsNullOrWhiteSpace(Password); } }
     }
 
@@ -28,6 +29,7 @@ namespace WpBlueBubbles.Services
         private const string UseAccentColorKey = "UseAccentColor";
         private const string LargerUiKey = "LargerUi";
         private const string DeveloperModeKey = "DeveloperMode";
+        private const string PollIntervalSecondsKey = "PollIntervalSeconds";
 
         public static ServerSettings Load()
         {
@@ -41,7 +43,8 @@ namespace WpBlueBubbles.Services
                 OledBlack = ReadBoolean(values, OledBlackKey, true),
                 UseAccentColor = ReadBoolean(values, UseAccentColorKey),
                 LargerUi = ReadBoolean(values, LargerUiKey),
-                DeveloperMode = ReadBoolean(values, DeveloperModeKey)
+                DeveloperMode = ReadBoolean(values, DeveloperModeKey),
+                PollIntervalSeconds = ReadInteger(values, PollIntervalSecondsKey, 5, 3, 60)
             };
         }
 
@@ -80,6 +83,11 @@ namespace WpBlueBubbles.Services
         public static void SaveDeveloperMode(bool enabled)
         {
             ApplicationData.Current.LocalSettings.Values[DeveloperModeKey] = enabled;
+        }
+
+        public static void SavePollInterval(int seconds)
+        {
+            ApplicationData.Current.LocalSettings.Values[PollIntervalSecondsKey] = seconds < 3 ? 3 : seconds > 60 ? 60 : seconds;
         }
 
         public static void EnsureVersion019Defaults()

@@ -3,6 +3,18 @@
 All releases are beta software. Versions before v0.2.0.0 are retained as legacy
 builds and may contain bugs fixed by later releases.
 
+## v0.2.1.8 Beta
+
+- Restored image rendering with lazy authenticated downloads for visible messages, without blocking chat history on media.
+- Limited concurrent image downloads and reused temporary image files during the session.
+- Made physical-keyboard Enter send on desktop and Shift+Enter insert a newline; phone Return remains newline-only.
+- Added a persistent 3/5/10/15/30-second message fetch setting, defaulting to five seconds.
+- Kept search, compose, and conversation actions visible together in wide desktop layouts.
+- Removed focused white backgrounds and borders from both message composers.
+- Changed the normal notification placeholder to "Notifications and Live Tiles coming soon" while preserving diagnostics copy in Developer mode.
+- Added a manual Private API status refresh when the helper is unavailable or its status cannot be read.
+- Fixed accent mode so outbound bubbles immediately use the actual Windows accent color; incoming bubbles remain gray.
+
 ## v0.2.1.7 Beta
 
 - Restored the pre-v0.2.1.5 media path: chats load attachment metadata immediately and visible media streams from BlueBubbles on demand.

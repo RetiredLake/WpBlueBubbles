@@ -89,6 +89,11 @@ namespace WpBlueBubbles.Models
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(AttachmentUri)));
         }
 
+        public void RefreshBubbleBrush()
+        {
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(BubbleBrush)));
+        }
+
         public void MarkAttachmentFailed()
         {
             var wasVideo = IsVideoAttachment;
