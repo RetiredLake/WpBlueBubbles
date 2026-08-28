@@ -648,7 +648,15 @@ namespace WpBlueBubbles
 
         private void ShowMessageContextMenu(FrameworkElement element, MessageItem message)
         {
-            ShowUnifiedMessageActions(element, message);
+            if (_contextMenuOpen || element == null || message == null || string.IsNullOrWhiteSpace(message.Text)) return;
+            ShowDarkActionFlyout(element, "Copy", () =>
+            {
+                var data = new DataPackage();
+                data.SetText(message.Text);
+                Clipboard.SetContent(data);
+                Clipboard.Flush();
+                return Task.CompletedTask;
+            }, "copy the message");
         }
 
         private void Media_Holding(object sender, HoldingRoutedEventArgs e)
@@ -668,80 +676,14 @@ namespace WpBlueBubbles
 
         private void ShowMediaContextMenu(FrameworkElement element, MessageItem message)
         {
-            ShowUnifiedMessageActions(element, message);
-        }
-
-        private void ShowUnifiedMessageActions(FrameworkElement element, MessageItem message)
-        {
-            if (_contextMenuOpen || element == null || message == null) return;
-            var actions = new List<Tuple<string, Func<Task>, string>>();
-            if (_serverCapabilities.CanUsePrivateApi && _client != null && _selectedChat != null && !string.IsNullOrWhiteSpace(message.Guid))
-                actions.Add(Tuple.Create<string, Func<Task>, string>("Delete", () => DeleteMessageAsync(message), "delete the message"));
-            if (!string.IsNullOrWhiteSpace(message.Text) || !string.IsNullOrWhiteSpace(message.AttachmentGuid))
-                actions.Add(Tuple.Create<string, Func<Task>, string>("Forward", () => ForwardMessageAsync(message), "forward the message"));
-            if (!string.IsNullOrWhiteSpace(message.Text))
-                actions.Add(Tuple.Create<string, Func<Task>, string>("Copy", () => { var data = new DataPackage(); data.SetText(message.Text); Clipboard.SetContent(data); Clipboard.Flush(); return Task.CompletedTask; }, "copy the message"));
-            if (_client != null && !string.IsNullOrWhiteSpace(message.AttachmentGuid))
-                actions.Add(Tuple.Create<string, Func<Task>, string>("Save", () => SaveMediaAsync(message), "save the media"));
-            if (actions.Count > 0) ShowDarkActionFlyout(element, actions);
-        }
-
-        private async Task DeleteMessageAsync(MessageItem message)
-        {
-            if (_client == null || _selectedChat == null || !_serverCapabilities.CanUsePrivateApi) return;
-            var dialog = new MessageDialog("Delete this message permanently from the BlueBubbles server? This cannot be undone. It will not unsend the message from other participants.", "Delete message?");
-            var confirm = new UICommand("Delete permanently");
-            dialog.Commands.Add(confirm);
-            dialog.Commands.Add(new UICommand("Cancel"));
-            dialog.DefaultCommandIndex = 1;
-            dialog.CancelCommandIndex = 1;
-            if (await dialog.ShowAsync() != confirm) return;
-            await _client.DeleteMessageAsync(_selectedChat.Guid, message.Guid);
-            _messages.Remove(message);
-        }
-
-        private async Task ForwardMessageAsync(MessageItem message)
-        {
-            if (_client == null) return;
-            ClearSharedContent();
-            _sharedText = string.IsNullOrWhiteSpace(message.Text) ? null : message.Text;
-            if (!string.IsNullOrWhiteSpace(message.AttachmentGuid))
+            if (_contextMenuOpen || _client == null || element == null || message == null || string.IsNullOrWhiteSpace(message.AttachmentGuid)) return;
+            ShowDarkActionFlyout(element, "Save", async () =>
             {
-                var folder = await ApplicationData.Current.TemporaryFolder.CreateFolderAsync("ForwardedMessages", CreationCollisionOption.OpenIfExists);
-                var file = await folder.CreateFileAsync(GetMediaFileName(message), CreationCollisionOption.GenerateUniqueName);
-                await FileIO.WriteBytesAsync(file, await _client.DownloadAttachmentAsync(message.AttachmentGuid));
-                _sharedFiles.Add(file);
-                _shareTemporaryFiles.Add(file);
-            }
-            OpenCompose();
-        }
-
-        private async Task SaveMediaAsync(MessageItem message)
-        {
-            var bytes = await _client.DownloadAttachmentAsync(message.AttachmentGuid);
-            var file = await KnownFolders.PicturesLibrary.CreateFileAsync(GetMediaFileName(message), CreationCollisionOption.GenerateUniqueName);
-            await FileIO.WriteBytesAsync(file, bytes);
-            await new MessageDialog("Saved to Pictures.", "BlueBubbles").ShowAsync();
-        }
-
-        private void ShowDarkActionFlyout(FrameworkElement element, IReadOnlyList<Tuple<string, Func<Task>, string>> actions)
-        {
-            _contextMenuOpen = true;
-            var panel = new StackPanel { Width = LargerUiToggle.IsOn ? 192 : 168, Background = new SolidColorBrush(Windows.UI.Colors.Black) };
-            var presenterStyle = new Style(typeof(FlyoutPresenter));
-            presenterStyle.Setters.Add(new Setter(Control.BackgroundProperty, new SolidColorBrush(Windows.UI.Colors.Black)));
-            presenterStyle.Setters.Add(new Setter(Control.ForegroundProperty, new SolidColorBrush(Windows.UI.Colors.White)));
-            presenterStyle.Setters.Add(new Setter(Control.PaddingProperty, new Thickness(0)));
-            var flyout = new Flyout { Content = panel, Placement = FlyoutPlacementMode.Auto, FlyoutPresenterStyle = presenterStyle };
-            flyout.Closed += (sender, args) => _contextMenuOpen = false;
-            foreach (var action in actions)
-            {
-                var button = new Button { Content = action.Item1, Width = panel.Width, Background = new SolidColorBrush(Windows.UI.Colors.Black), Foreground = new SolidColorBrush(Windows.UI.Colors.White), BorderThickness = new Thickness(0), Padding = new Thickness(16, 10, 16, 10), HorizontalContentAlignment = HorizontalAlignment.Left };
-                button.Click += async (sender, args) => { flyout.Hide(); try { await action.Item2(); } catch (Exception ex) { ShowStatus(FriendlyError(ex, action.Item3), true); } };
-                panel.Children.Add(button);
-            }
-            try { flyout.ShowAt(element); }
-            catch { _contextMenuOpen = false; }
+                var bytes = await _client.DownloadAttachmentAsync(message.AttachmentGuid);
+                var file = await KnownFolders.PicturesLibrary.CreateFileAsync(GetMediaFileName(message), CreationCollisionOption.GenerateUniqueName);
+                await FileIO.WriteBytesAsync(file, bytes);
+                await new MessageDialog("Saved to Pictures.", "BlueBubbles").ShowAsync();
+            }, "save the media");
         }
 
         private void ShowDarkActionFlyout(FrameworkElement element, string label, Func<Task> action, string errorAction)
@@ -809,7 +751,7 @@ namespace WpBlueBubbles
             _recipientMatches.Clear();
             foreach (var chat in _allChats.Take(12)) _recipientMatches.Add(chat);
             ComposeOverlay.Visibility = Visibility.Visible;
-            if (!string.IsNullOrWhiteSpace(_sharedText)) ComposeMessageBox.Text = _sharedText;
+            if (_shareOperation != null && !string.IsNullOrWhiteSpace(_sharedText)) ComposeMessageBox.Text = _sharedText;
             SharedComposePreview.Text = BuildSharedPreview();
             SharedComposePreview.Visibility = string.IsNullOrWhiteSpace(SharedComposePreview.Text) ? Visibility.Collapsed : Visibility.Visible;
             RecipientBox.Focus(FocusState.Programmatic);

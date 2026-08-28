@@ -3,15 +3,12 @@
 All releases are beta software. Versions before v0.2.0.0 are retained as legacy
 builds and may contain bugs fixed by later releases.
 
-## v3.1.0.0 Beta
+## v0.3.1.0 Beta
 
-- Rebased the application UI, media renderer, connection flow, polling, and send path on the proven v0.2.2.1 codebase.
-- Removed the accumulated v0.3.x interaction and media changes responsible for performance and image regressions.
-- Backported a unified dark action menu without changing the stable media templates or gesture handlers.
-- Added Forward, Copy, Save, and Private API message deletion; retained the stable confirmed Delete chat implementation.
-- Added accent-aware Windows rolling dots only for initial chat-list and user-opened conversation loads.
-- Backported the manual GitHub app-bundle updater without adding startup network work.
-- Uses a major version jump because this recovery release intentionally replaces the v0.3.x line.
+- Restored the complete v0.2.2.1 application codebase, including its proven image/media renderer, connection flow, polling, sending, actions, themes, and settings.
+- Added only a manual GitHub app-bundle updater in Settings.
+- Added accent-aware Windows rolling dots during the initial chat-list load and user-opened conversation loads only.
+- No message, media, server-client, polling, send-path, context-menu, model, or theme behavior was backported from v0.3.x.
 
 ## v0.2.2.1 Beta
 
