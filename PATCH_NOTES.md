@@ -3,6 +3,19 @@
 All releases are beta software. Versions before v0.2.0.0 are retained as legacy
 builds and may contain bugs fixed by later releases.
 
+## v0.2.2.1 Beta
+
+- Added an optional, persisted Send read receipts toggle. It is off by default.
+- Kept local unread tracking active when server read receipts are disabled.
+- Fixed message and media context menus so desktop right-click no longer opens overlapping menus or crashes.
+- Fixed touch-and-hold Copy and Save menus closing before an action could be selected on Windows 10 Mobile.
+- Updated the credits link to the WpBlueBubbles GitHub project.
+
+### Coming soon
+
+- Notifications and Live Tiles.
+- Read receipts and incoming typing indicators.
+
 ## v0.2.2.0 Beta
 
 - Made share-target files durable before upload so images remain attached throughout Compose.

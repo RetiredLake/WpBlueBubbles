@@ -22,6 +22,7 @@ the same C#/XAML application package on desktop Windows.
 - Group sender labels and full-screen picture viewing.
 - Read/unread state, mark-as-read, and typing indicators when Private API is ready.
 - Share target, contact activation, media saving, and per-chat Start tiles.
+- Optional outbound read receipts, disabled by default.
 
 Notifications and Live Tile updates are intentionally disabled in the current
 beta. The proposed WNS notification architecture is documented in

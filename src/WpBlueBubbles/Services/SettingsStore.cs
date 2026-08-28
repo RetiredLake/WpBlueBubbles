@@ -12,6 +12,7 @@ namespace WpBlueBubbles.Services
         public bool OledBlack { get; set; }
         public bool UseAccentColor { get; set; }
         public bool LargerUi { get; set; }
+        public bool SendReadReceipts { get; set; }
         public bool DeveloperMode { get; set; }
         public int PollIntervalSeconds { get; set; }
         public bool IsComplete { get { return !string.IsNullOrWhiteSpace(Address) && !string.IsNullOrWhiteSpace(Password); } }
@@ -28,6 +29,7 @@ namespace WpBlueBubbles.Services
         private const string OledBlackKey = "OledBlack";
         private const string UseAccentColorKey = "UseAccentColor";
         private const string LargerUiKey = "LargerUi";
+        private const string SendReadReceiptsKey = "SendReadReceipts";
         private const string DeveloperModeKey = "DeveloperMode";
         private const string PollIntervalSecondsKey = "PollIntervalSeconds";
 
@@ -43,6 +45,7 @@ namespace WpBlueBubbles.Services
                 OledBlack = ReadBoolean(values, OledBlackKey, true),
                 UseAccentColor = ReadBoolean(values, UseAccentColorKey),
                 LargerUi = ReadBoolean(values, LargerUiKey),
+                SendReadReceipts = ReadBoolean(values, SendReadReceiptsKey),
                 DeveloperMode = ReadBoolean(values, DeveloperModeKey),
                 PollIntervalSeconds = ReadInteger(values, PollIntervalSecondsKey, 5, 3, 60)
             };
@@ -83,6 +86,11 @@ namespace WpBlueBubbles.Services
         public static void SaveDeveloperMode(bool enabled)
         {
             ApplicationData.Current.LocalSettings.Values[DeveloperModeKey] = enabled;
+        }
+
+        public static void SaveSendReadReceipts(bool enabled)
+        {
+            ApplicationData.Current.LocalSettings.Values[SendReadReceiptsKey] = enabled;
         }
 
         public static void SavePollInterval(int seconds)

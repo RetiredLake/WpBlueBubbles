@@ -25,6 +25,7 @@ using Windows.UI.StartScreen;
 using Windows.System.Profile;
 using Windows.UI.Xaml;
 using Windows.UI.Xaml.Controls;
+using Windows.UI.Xaml.Controls.Primitives;
 using Windows.UI.Xaml.Input;
 using Windows.UI.Xaml.Media;
 using Windows.UI.Xaml.Media.Imaging;
@@ -81,7 +82,7 @@ namespace WpBlueBubbles
         private string _typingChatGuid;
         private int _availabilityGeneration;
         private string _composeService;
-        private readonly HashSet<UIElement> _contextMenuHooks = new HashSet<UIElement>();
+        private bool _contextMenuOpen;
         private static readonly bool UseLegacyInAppSyncStatus = false;
         private static readonly bool UsePhoneSyncStatus = false;
 
@@ -130,6 +131,7 @@ namespace WpBlueBubbles
             OledBlackToggle.IsOn = settings.OledBlack;
             AccentColorToggle.IsOn = settings.UseAccentColor;
             LargerUiToggle.IsOn = settings.LargerUi;
+            SendReadReceiptsToggle.IsOn = settings.SendReadReceipts;
             DeveloperModeToggle.IsOn = settings.DeveloperMode;
             _pollTimer.Interval = TimeSpan.FromSeconds(settings.PollIntervalSeconds);
             ApplyTheme(settings.OledBlack, settings.UseAccentColor, settings.LargerUi);
@@ -503,9 +505,18 @@ namespace WpBlueBubbles
         {
             var chat = _selectedChat;
             if (chat == null) return;
+            var sendReceipt = _serverCapabilities.CanUsePrivateApi && SendReadReceiptsToggle.IsOn && chat.IsUnread;
             chat.IsUnread = false;
             NotificationStateStore.MarkRead(chat.Guid);
-            await Task.CompletedTask;
+            if (!sendReceipt || _client == null || string.IsNullOrWhiteSpace(chat.Guid)) return;
+            try
+            {
+                await _client.MarkChatReadAsync(chat.Guid);
+            }
+            catch (Exception ex)
+            {
+                ShowStatus(FriendlyError(ex, "send the read receipt"), true);
+            }
         }
 
         private async void Connect_Click(object sender, RoutedEventArgs e)
@@ -616,71 +627,93 @@ namespace WpBlueBubbles
             StageSharedContentInComposer();
         }
 
-        private async void Message_Holding(object sender, HoldingRoutedEventArgs e)
+        private void Message_Holding(object sender, HoldingRoutedEventArgs e)
         {
             if (e.HoldingState != HoldingState.Started) return;
+            e.Handled = true;
             var element = sender as FrameworkElement;
             var message = element?.DataContext as MessageItem;
-            await ShowMessageContextMenuAsync(element, message);
+            ShowMessageContextMenu(element, message);
         }
 
-        private async void Message_RightTapped(object sender, RightTappedRoutedEventArgs e)
+        private void Message_RightTapped(object sender, RightTappedRoutedEventArgs e)
         {
             e.Handled = true;
             var element = sender as FrameworkElement;
-            await ShowMessageContextMenuAsync(element, element?.DataContext as MessageItem);
+            ShowMessageContextMenu(element, element?.DataContext as MessageItem);
         }
 
-        private static async Task ShowMessageContextMenuAsync(FrameworkElement element, MessageItem message)
+        private void ShowMessageContextMenu(FrameworkElement element, MessageItem message)
         {
-            if (element == null || message == null || string.IsNullOrWhiteSpace(message.Text)) return;
-            var menu = new PopupMenu();
-            menu.Commands.Add(new UICommand("Copy"));
-            var point = element.TransformToVisual(null).TransformPoint(new Point());
-            var chosen = await menu.ShowForSelectionAsync(new Rect(point, element.RenderSize));
-            if (chosen == null) return;
-            var data = new DataPackage();
-            data.SetText(message.Text);
-            Clipboard.SetContent(data);
-            Clipboard.Flush();
+            if (_contextMenuOpen || element == null || message == null || string.IsNullOrWhiteSpace(message.Text)) return;
+            ShowDarkActionFlyout(element, "Copy", () =>
+            {
+                var data = new DataPackage();
+                data.SetText(message.Text);
+                Clipboard.SetContent(data);
+                Clipboard.Flush();
+                return Task.CompletedTask;
+            }, "copy the message");
         }
 
-        private async void Media_Holding(object sender, HoldingRoutedEventArgs e)
+        private void Media_Holding(object sender, HoldingRoutedEventArgs e)
         {
             if (e.HoldingState != HoldingState.Started) return;
             e.Handled = true;
             var element = sender as FrameworkElement;
-            await ShowMediaContextMenuAsync(element, element?.DataContext as MessageItem);
+            ShowMediaContextMenu(element, element?.DataContext as MessageItem);
         }
 
-        private async void Media_RightTapped(object sender, RightTappedRoutedEventArgs e)
+        private void Media_RightTapped(object sender, RightTappedRoutedEventArgs e)
         {
             e.Handled = true;
             var element = sender as FrameworkElement;
-            await ShowMediaContextMenuAsync(element, element?.DataContext as MessageItem);
+            ShowMediaContextMenu(element, element?.DataContext as MessageItem);
         }
 
-        private async Task ShowMediaContextMenuAsync(FrameworkElement element, MessageItem message)
+        private void ShowMediaContextMenu(FrameworkElement element, MessageItem message)
         {
-            if (_client == null || element == null || message == null || string.IsNullOrWhiteSpace(message.AttachmentGuid)) return;
-
-            var saveCommand = new UICommand("Save");
-            var menu = new PopupMenu();
-            menu.Commands.Add(saveCommand);
-            var point = element.TransformToVisual(null).TransformPoint(new Point());
-            var chosen = await menu.ShowForSelectionAsync(new Rect(point, element.RenderSize));
-            if (chosen != saveCommand) return;
-
-            try
+            if (_contextMenuOpen || _client == null || element == null || message == null || string.IsNullOrWhiteSpace(message.AttachmentGuid)) return;
+            ShowDarkActionFlyout(element, "Save", async () =>
             {
                 var bytes = await _client.DownloadAttachmentAsync(message.AttachmentGuid);
                 var file = await KnownFolders.PicturesLibrary.CreateFileAsync(GetMediaFileName(message), CreationCollisionOption.GenerateUniqueName);
                 await FileIO.WriteBytesAsync(file, bytes);
                 await new MessageDialog("Saved to Pictures.", "BlueBubbles").ShowAsync();
-            }
+            }, "save the media");
+        }
+
+        private void ShowDarkActionFlyout(FrameworkElement element, string label, Func<Task> action, string errorAction)
+        {
+            _contextMenuOpen = true;
+            var button = new Button
+            {
+                Content = label,
+                Background = new SolidColorBrush(Windows.UI.Colors.Black),
+                Foreground = new SolidColorBrush(Windows.UI.Colors.White),
+                BorderThickness = new Thickness(0),
+                Padding = new Thickness(16, 9, 16, 9),
+                MinWidth = 74,
+                HorizontalContentAlignment = HorizontalAlignment.Left
+            };
+            var presenterStyle = new Style(typeof(FlyoutPresenter));
+            presenterStyle.Setters.Add(new Setter(Control.BackgroundProperty, new SolidColorBrush(Windows.UI.Colors.Black)));
+            presenterStyle.Setters.Add(new Setter(Control.ForegroundProperty, new SolidColorBrush(Windows.UI.Colors.White)));
+            presenterStyle.Setters.Add(new Setter(Control.PaddingProperty, new Thickness(0)));
+            var flyout = new Flyout { Content = button, Placement = FlyoutPlacementMode.Top, FlyoutPresenterStyle = presenterStyle };
+            flyout.Closed += (sender, args) => _contextMenuOpen = false;
+            button.Click += async (sender, args) =>
+            {
+                button.IsEnabled = false;
+                try { await action(); }
+                catch (Exception ex) { ShowStatus(FriendlyError(ex, errorAction), true); }
+                finally { flyout.Hide(); }
+            };
+            try { flyout.ShowAt(element); }
             catch (Exception ex)
             {
-                ShowStatus("Could not save media: " + ex.Message, true);
+                _contextMenuOpen = false;
+                ShowStatus(FriendlyError(ex, "open the message menu"), true);
             }
         }
 
@@ -1180,6 +1213,11 @@ namespace WpBlueBubbles
             UpdateDeveloperModePresentation();
         }
 
+        private void SendReadReceiptsToggle_Toggled(object sender, RoutedEventArgs e)
+        {
+            if (_settingsLoaded) SettingsStore.SaveSendReadReceipts(SendReadReceiptsToggle.IsOn);
+        }
+
         private void UpdateDeveloperModePresentation()
         {
             if (NotificationsStatusText == null || DeveloperModeToggle == null) return;
@@ -1278,6 +1316,8 @@ namespace WpBlueBubbles
                 : _serverCapabilities.PrivateApiEnabled ? "Enabled, helper disconnected" : "Disabled";
             PrivateApiRefreshButton.Visibility = _client != null && (!_serverCapabilitiesKnown || !_serverCapabilities.CanUsePrivateApi)
                 ? Visibility.Visible : Visibility.Collapsed;
+            SendReadReceiptsToggle.IsEnabled = _serverCapabilities.CanUsePrivateApi;
+            SendReadReceiptsToggle.Visibility = _serverCapabilities.CanUsePrivateApi ? Visibility.Visible : Visibility.Collapsed;
         }
 
         private async void PrivateApiRefresh_Click(object sender, RoutedEventArgs e)
@@ -1347,6 +1387,7 @@ namespace WpBlueBubbles
             ClearSharedContent();
             OledBlackToggle.IsOn = true;
             AccentColorToggle.IsOn = false;
+            SendReadReceiptsToggle.IsOn = false;
             DeveloperModeToggle.IsOn = false;
             LargerUiToggle.IsOn = false;
             _pollTimer.Interval = TimeSpan.FromSeconds(5);
@@ -1817,9 +1858,6 @@ namespace WpBlueBubbles
 
         private async void Media_Opened(object sender, RoutedEventArgs e)
         {
-            var element = sender as UIElement;
-            if (element != null && _contextMenuHooks.Add(element))
-                element.AddHandler(UIElement.RightTappedEvent, new RightTappedEventHandler(Media_RightTapped), true);
             if (DateTimeOffset.Now <= _pinMessagesToBottomUntil) await ScrollToNewestMessageAsync();
         }
 
@@ -1889,8 +1927,6 @@ namespace WpBlueBubbles
         private void MessageText_Loaded(object sender, RoutedEventArgs e)
         {
             var block = sender as RichTextBlock;
-            if (block != null && _contextMenuHooks.Add(block))
-                block.AddHandler(UIElement.RightTappedEvent, new RightTappedEventHandler(Message_RightTapped), true);
             RenderMessageText(block, block?.DataContext as MessageItem);
         }
 
