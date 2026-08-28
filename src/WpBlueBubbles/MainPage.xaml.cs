@@ -60,6 +60,7 @@ namespace WpBlueBubbles
         private IReadOnlyDictionary<string, string> _contactTileImages = new Dictionary<string, string>();
         private ShareOperation _shareOperation;
         private readonly List<StorageFile> _sharedFiles = new List<StorageFile>();
+        private readonly List<StorageFile> _shareTemporaryFiles = new List<StorageFile>();
         private string _sharedText;
         private bool _showArchived;
         private ChatItem _composeSelectedChat;
@@ -714,6 +715,7 @@ namespace WpBlueBubbles
             _recipientMatches.Clear();
             foreach (var chat in _allChats.Take(12)) _recipientMatches.Add(chat);
             ComposeOverlay.Visibility = Visibility.Visible;
+            if (_shareOperation != null && !string.IsNullOrWhiteSpace(_sharedText)) ComposeMessageBox.Text = _sharedText;
             SharedComposePreview.Text = BuildSharedPreview();
             SharedComposePreview.Visibility = string.IsNullOrWhiteSpace(SharedComposePreview.Text) ? Visibility.Collapsed : Visibility.Visible;
             RecipientBox.Focus(FocusState.Programmatic);
@@ -829,16 +831,29 @@ namespace WpBlueBubbles
 
         private async Task SendComposedMessageAsync()
         {
-            if (_client == null) return;
+            var fromShareTarget = _shareOperation != null;
+            if (_client == null && !await WaitForClientAsync())
+            {
+                FinishFailedCompose(fromShareTarget, "BlueBubbles is not connected to the server.");
+                return;
+            }
             var message = ComposeMessageBox.Text.Trim();
             if (string.IsNullOrWhiteSpace(message) && _sharedFiles.Count == 0) { ShowStatus("Write a message or choose an attachment before sending.", true); return; }
             var recipient = RecipientBox.Text.Trim();
             var recipients = ParseRecipients(recipient);
+            if (_composeSelectedChat == null) _composeSelectedChat = FindExistingChat(recipients);
+            if (_composeSelectedChat == null && recipients.Count == 1) _composeSelectedChat = await _client.FindDirectChatAsync(recipients[0], _composeService);
             if (_composeSelectedChat == null && recipients.Count == 0) { ShowStatus("Enter at least one phone number or email address.", true); return; }
             if (_composeSelectedChat == null && recipients.Count > 1 && !_serverCapabilities.CanUsePrivateApi) { ShowStatus("Creating group chats requires the BlueBubbles Private API helper.", true); return; }
-            if (_composeSelectedChat == null && string.IsNullOrWhiteSpace(message)) { ShowStatus("Write a message before starting a new conversation with an attachment.", true); return; }
+            if (_composeSelectedChat == null && string.IsNullOrWhiteSpace(message))
+            {
+                var error = "A text message is required to start a brand-new conversation before sending attachments.";
+                if (fromShareTarget) FinishFailedCompose(true, error);
+                else ShowStatus(error, true);
+                return;
+            }
 
-            var sent = false;
+            var sendAccepted = false;
             ComposeSendButton.IsEnabled = false;
             ComposeMessageBox.IsReadOnly = true;
             RecipientBox.IsReadOnly = true;
@@ -847,32 +862,49 @@ namespace WpBlueBubbles
             {
                 SetSyncing(true, "Sending message...");
                 ChatItem chat = _composeSelectedChat;
-                if (chat == null) chat = await _client.CreateChatAsync(recipients, message, _composeService);
-                else if (!string.IsNullOrWhiteSpace(message)) await _client.SendTextAsync(chat.Guid, message);
-                if (chat == null || string.IsNullOrWhiteSpace(chat.Guid)) throw new InvalidOperationException("BlueBubbles sent the message but did not return the conversation.");
-                foreach (var file in _sharedFiles.ToList()) await _client.SendAttachmentAsync(chat.Guid, file);
-                sent = true;
+                if (chat == null)
+                {
+                    chat = await _client.CreateChatAsync(recipients, message, _composeService);
+                    sendAccepted = true;
+                    if (chat == null || string.IsNullOrWhiteSpace(chat.Guid))
+                    {
+                        await RefreshChatsAsync();
+                        chat = FindExistingChat(recipients);
+                    }
+                }
+                else if (!string.IsNullOrWhiteSpace(message))
+                {
+                    await _client.SendTextAsync(chat.Guid, message);
+                    sendAccepted = true;
+                }
+                if (chat == null || string.IsNullOrWhiteSpace(chat.Guid)) throw new InvalidOperationException("BlueBubbles accepted the message but did not return the conversation.");
+                foreach (var file in _sharedFiles.ToList())
+                {
+                    await _client.SendAttachmentAsync(chat.Guid, file);
+                    sendAccepted = true;
+                }
                 if (string.IsNullOrWhiteSpace(chat.Title)) chat.Title = string.IsNullOrWhiteSpace(recipient) ? "Conversation" : recipient;
-                ComposeOverlay.Visibility = Visibility.Collapsed;
-                _messageLoadGeneration++;
-                ResetMessageItems();
-                _selectedChat = chat;
-                PageTitle.Text = _selectedChat.Title;
-                EmptyConversation.Visibility = Visibility.Collapsed;
-                MessagesList.Visibility = Visibility.Visible;
-                Composer.Visibility = Visibility.Visible;
-                UpdateHeaderActions(true);
-                if (UseSinglePaneLayout) ReturnToConversation();
                 ComposeMessageBox.Text = string.Empty;
+                ComposeOverlay.Visibility = Visibility.Collapsed;
                 CompleteSharedContent();
-                await RefreshChatsAsync();
-                _selectedChat = _allChats.FirstOrDefault(item => item.Guid == chat.Guid) ?? _selectedChat;
-                PageTitle.Text = _selectedChat.Title;
-                await RefreshMessagesAsync(true);
+                OpenConversation(chat);
+                try
+                {
+                    await RefreshChatsAsync();
+                    var refreshed = _allChats.FirstOrDefault(item => item.Guid == chat.Guid);
+                    if (refreshed != null) OpenConversation(refreshed);
+                    await RefreshMessagesAsync(true);
+                }
+                catch (Exception ex)
+                {
+                    ShowStatus("The message was sent, but the conversation could not be refreshed: " + FriendlyError(ex, "refresh the conversation"), true);
+                }
             }
             catch (Exception ex)
             {
-                ShowStatus(sent ? "The message was sent, but the conversation could not be found or refreshed." : FriendlyError(ex, "send the message"), true);
+                FinishFailedCompose(fromShareTarget, sendAccepted
+                    ? "The message was accepted, but BlueBubbles could not open its conversation."
+                    : FriendlyError(ex, "send the message"));
             }
             finally
             {
@@ -883,6 +915,54 @@ namespace WpBlueBubbles
                 if (ComposeOverlay.Visibility == Visibility.Visible && ShouldRefocusAfterSend) ComposeMessageBox.Focus(FocusState.Programmatic);
                 SetSyncing(false, null);
             }
+        }
+
+        private async Task<bool> WaitForClientAsync()
+        {
+            for (var attempt = 0; attempt < 100 && _client == null; attempt++) await Task.Delay(100);
+            return _client != null;
+        }
+
+        private ChatItem FindExistingChat(IReadOnlyList<string> recipients)
+        {
+            if (recipients == null || recipients.Count == 0) return null;
+            var expected = new HashSet<string>(recipients.Select(NormalizeRecipient).Where(value => value.Length > 0), StringComparer.OrdinalIgnoreCase);
+            if (expected.Count == 0) return null;
+            return _allChats.FirstOrDefault(chat =>
+            {
+                var actual = new HashSet<string>((chat.ParticipantAddresses ?? new List<string>()).Select(NormalizeRecipient).Where(value => value.Length > 0), StringComparer.OrdinalIgnoreCase);
+                return actual.SetEquals(expected);
+            });
+        }
+
+        private static string NormalizeRecipient(string value)
+        {
+            if (string.IsNullOrWhiteSpace(value)) return string.Empty;
+            if (value.IndexOf('@') >= 0) return value.Trim().ToLowerInvariant();
+            var digits = new string(value.Where(char.IsDigit).ToArray());
+            return digits.Length == 11 && digits.StartsWith("1") ? digits.Substring(1) : digits.Length > 10 ? digits.Substring(digits.Length - 10) : digits;
+        }
+
+        private void OpenConversation(ChatItem chat)
+        {
+            if (chat == null || string.IsNullOrWhiteSpace(chat.Guid)) { ReturnToChats(); return; }
+            _messageLoadGeneration++;
+            ResetMessageItems();
+            _selectedChat = chat;
+            PageTitle.Text = chat.Title;
+            EmptyConversation.Visibility = Visibility.Collapsed;
+            MessagesList.Visibility = Visibility.Visible;
+            Composer.Visibility = Visibility.Visible;
+            UpdateHeaderActions(true);
+            if (UseSinglePaneLayout) ReturnToConversation();
+        }
+
+        private void FinishFailedCompose(bool fromShareTarget, string error)
+        {
+            ComposeOverlay.Visibility = Visibility.Collapsed;
+            ReturnToChats();
+            if (fromShareTarget) FailSharedContent(error);
+            ShowStatus(error, true);
         }
 
         private async void ChooseContact_Click(object sender, RoutedEventArgs e)
@@ -1613,7 +1693,14 @@ namespace WpBlueBubbles
                 {
                     var items = await view.GetStorageItemsAsync();
                     _sharedFiles.Clear();
-                    _sharedFiles.AddRange(items.OfType<StorageFile>());
+                    _shareTemporaryFiles.Clear();
+                    var folder = await ApplicationData.Current.TemporaryFolder.CreateFolderAsync("SharedIncoming", CreationCollisionOption.OpenIfExists);
+                    foreach (var source in items.OfType<StorageFile>())
+                    {
+                        var copy = await source.CopyAsync(folder, source.Name, NameCollisionOption.GenerateUniqueName);
+                        _shareTemporaryFiles.Add(copy);
+                        _sharedFiles.Add(copy);
+                    }
                     if (_sharedFiles.Count == 0) { ShowStatus("No supported file was provided.", true); CompleteSharedContent(); return; }
                 }
                 if (view.Contains(StandardDataFormats.Text))
@@ -1621,12 +1708,12 @@ namespace WpBlueBubbles
                     _sharedText = await view.GetTextAsync();
                 }
                 if (_sharedFiles.Count == 0 && string.IsNullOrWhiteSpace(_sharedText)) { ShowStatus("No shareable item was provided.", true); CompleteSharedContent(); return; }
+                operation.ReportDataRetrieved();
                 OpenCompose();
             }
-            catch
+            catch (Exception ex)
             {
-                operation.ReportError("BlueBubbles could not read the shared item.");
-                ClearSharedContent();
+                FailSharedContent("BlueBubbles could not read the shared item: " + ex.Message);
             }
         }
 
@@ -1658,8 +1745,16 @@ namespace WpBlueBubbles
             ClearSharedContent();
         }
 
+        private void FailSharedContent(string message)
+        {
+            try { _shareOperation?.ReportError(message); } catch { }
+            ClearSharedContent();
+        }
+
         private void ClearSharedContent()
         {
+            var temporaryFiles = _shareTemporaryFiles.ToList();
+            _shareTemporaryFiles.Clear();
             _shareOperation = null;
             _sharedFiles.Clear();
             _sharedText = null;
@@ -1667,6 +1762,16 @@ namespace WpBlueBubbles
             SharedAttachmentBanner.Text = string.Empty;
             AttachmentBannerHost.Visibility = Visibility.Collapsed;
             SharedComposePreview.Visibility = Visibility.Collapsed;
+            _ = DeleteTemporarySharedFilesAsync(temporaryFiles);
+        }
+
+        private static async Task DeleteTemporarySharedFilesAsync(IEnumerable<StorageFile> files)
+        {
+            foreach (var file in files)
+            {
+                try { await file.DeleteAsync(StorageDeleteOption.PermanentDelete); }
+                catch { try { await file.DeleteAsync(); } catch { } }
+            }
         }
 
         private async Task PrepareVideoAsync(BlueBubblesClient client, MessageItem message)

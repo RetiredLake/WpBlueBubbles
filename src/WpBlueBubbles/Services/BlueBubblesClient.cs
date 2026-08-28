@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Net.Http;
 using System.Text;
 using System.Threading.Tasks;
@@ -260,6 +261,30 @@ namespace WpBlueBubbles.Services
             JsonArray chats;
             if (JsonValueReader.TryArray(data, "chats", out chats) && chats.Count > 0 && chats[0].ValueType == JsonValueType.Object) return ChatItem.FromJson(chats[0].GetObject());
             return ChatItem.FromJson(data);
+        }
+
+        public async Task<ChatItem> FindDirectChatAsync(string address, string preferredService)
+        {
+            if (string.IsNullOrWhiteSpace(address)) return null;
+            var services = new[] { preferredService, "iMessage", "SMS", "RCS" }
+                .Where(value => !string.IsNullOrWhiteSpace(value))
+                .Distinct(StringComparer.OrdinalIgnoreCase);
+            foreach (var service in services)
+            {
+                try
+                {
+                    var guid = service + ";-;" + address.Trim();
+                    var root = await GetRootAsync("chat/" + Uri.EscapeDataString(guid) + "?with=participants,lastmessage");
+                    JsonObject data;
+                    var chat = JsonValueReader.TryObject(root, "data", out data) ? data : root;
+                    if (!string.IsNullOrWhiteSpace(JsonValueReader.String(chat, "guid"))) return ChatItem.FromJson(chat);
+                }
+                catch
+                {
+                    // A missing service-specific GUID is expected while probing the available transports.
+                }
+            }
+            return null;
         }
 
         public string GetGroupIconUri(string chatGuid)

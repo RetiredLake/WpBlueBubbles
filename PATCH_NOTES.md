@@ -3,6 +3,16 @@
 All releases are beta software. Versions before v0.2.0.0 are retained as legacy
 builds and may contain bugs fixed by later releases.
 
+## v0.2.2.0 Beta
+
+- Made share-target files durable before upload so images remain attached throughout Compose.
+- Resolved selected contacts to existing conversations before enforcing the new-chat text requirement.
+- Closed Compose and the Windows share sheet immediately after a successful send.
+- Navigated to the destination conversation independently of the subsequent chat refresh.
+- Returned to Chats with a clear error if the destination conversation could not be opened.
+- Prevented refresh failures from leaving Compose or the share sheet hanging after a successful send.
+- Preserved original shared filenames and removed temporary share copies after completion.
+
 ## v0.2.1.9 Beta
 
 - Restored reliable image rendering by returning to the proven direct attachment path.

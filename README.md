@@ -83,7 +83,7 @@ clients takes priority until notifications are complete.
 
 ## Status
 
-The current release is **v0.2.1.9 Beta**. Builds from v0.1.6.0 through v0.1.9.9
+The current release is **v0.2.2.0 Beta**. Builds from v0.1.6.0 through v0.1.9.9
 are published as legacy betas for testing and historical preservation.
 
 The v0.2 series stores growing per-chat state in files rather than the
@@ -99,6 +99,9 @@ complete even when the first chat sync needs to retry.
 v0.2.1.9 restores reliable image and video rendering, prevents hidden media
 controls from invalidating pictures, adds configurable polling, corrects
 desktop Enter behavior, and keeps desktop conversation actions visible.
+v0.2.2.0 makes Share-target attachments durable, closes Compose and the Windows
+share sheet deterministically, and always opens the destination conversation or
+returns safely to Chats.
 
 Developed by [retiredlake.com](https://retiredlake.com/).
 
