@@ -3,6 +3,11 @@
 All releases are beta software. Versions before v0.2.0.0 are retained as legacy
 builds and may contain bugs fixed by later releases.
 
+## v0.3.1.2 Beta
+
+- Fixes the message action menu failing to open with `Arg_ArgumentException` by using the explicit classic UWP flyout placement supported by the stable client.
+- GitHub release downloads now publish only the complete ZIP and universal ARM/x86/x64 app bundle.
+
 ## v0.3.1.1 Beta
 
 - Restores the System, Light, Blue, and Dark app theme selector without changing the stable media, polling, or message-loading paths.

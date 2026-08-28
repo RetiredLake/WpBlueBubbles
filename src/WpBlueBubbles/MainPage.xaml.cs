@@ -720,7 +720,7 @@ namespace WpBlueBubbles
             presenterStyle.Setters.Add(new Setter(Control.BackgroundProperty, new SolidColorBrush(Windows.UI.Colors.Black)));
             presenterStyle.Setters.Add(new Setter(Control.ForegroundProperty, new SolidColorBrush(Windows.UI.Colors.White)));
             presenterStyle.Setters.Add(new Setter(Control.PaddingProperty, new Thickness(0)));
-            var flyout = new Flyout { Content = content, Placement = FlyoutPlacementMode.Auto, FlyoutPresenterStyle = presenterStyle };
+            var flyout = new Flyout { Content = content, Placement = FlyoutPlacementMode.Top, FlyoutPresenterStyle = presenterStyle };
             flyout.Closed += (sender, args) => _contextMenuOpen = false;
             foreach (var choice in actions)
             {
