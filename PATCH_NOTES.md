@@ -3,7 +3,7 @@
 All releases are beta software. Versions before v0.2.0.0 are retained as legacy
 builds and may contain bugs fixed by later releases.
 
-## v3.1.0.0 Beta Candidate
+## v3.1.0.0 Beta
 
 - Rebased the application UI, media renderer, connection flow, polling, and send path on the proven v0.2.2.1 codebase.
 - Removed the accumulated v0.3.x interaction and media changes responsible for performance and image regressions.
